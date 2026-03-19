@@ -3,4 +3,5 @@ backend/.venv/
 node_modules/
 .vscode/
 .env
-*_initial_schema.py
+backend/alembic/versions/*.py
+!backend/alembic/versions/.gitkeep
