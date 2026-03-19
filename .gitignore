@@ -1,0 +1,6 @@
+__pycache__/
+backend/.venv/
+node_modules/
+.vscode/
+.env
+*_initial_schema.py
