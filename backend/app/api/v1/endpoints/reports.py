@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -9,6 +9,7 @@ from app.models.ml_template import MlTemplate
 from app.models.project import Project
 from app.models.report import Report
 from app.models.report_type import ReportType
+from app.models.report_upload import ReportUpload
 from app.models.user import User
 from app.schemas.report import (
     ReportCreate,
@@ -17,8 +18,11 @@ from app.schemas.report import (
     ReportStatusUpdate,
     ReportUpdate,
 )
+from app.schemas.upload import ReportUploadDetailRead
+from app.services.upload_service import UploadService
 
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
+
 
 def _get_report_detail_or_404(db: Session, report_id: int) -> Report:
     stmt = (
@@ -37,14 +41,17 @@ def _get_report_detail_or_404(db: Session, report_id: int) -> Report:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
     return report
 
+
 @router.get("/", response_model=list[ReportRead])
 def list_reports(db: Session = Depends(get_db)) -> list[Report]:
     stmt = select(Report).order_by(Report.id)
     return list(db.scalars(stmt).all())
 
+
 @router.get("/{report_id}", response_model=ReportDetailRead)
 def get_report(report_id: int, db: Session = Depends(get_db)) -> Report:
     return _get_report_detail_or_404(db, report_id)
+
 
 @router.post("/", response_model=ReportDetailRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_operator_user)])
 def create_report(payload: ReportCreate, db: Session = Depends(get_db)) -> Report:
@@ -81,6 +88,39 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db)) -> Repor
     db.refresh(report)
     return _get_report_detail_or_404(db, report.id)
 
+
+@router.post(
+    "/{report_id}/uploads/file",
+    response_model=ReportUploadDetailRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_operator_user)],
+)
+def upload_report_file(
+    report_id: int,
+    file: UploadFile = File(...),
+    comment: str | None = Form(default=None),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    service = UploadService(db)
+    upload = service.create_report_upload(
+        report_id=report_id,
+        upload_file=file,
+        uploaded_by=current_user,
+        comment=comment,
+    )
+    stmt = (
+        select(ReportUpload)
+        .options(
+            selectinload(ReportUpload.report),
+            selectinload(ReportUpload.report_type),
+            selectinload(ReportUpload.uploader),
+        )
+        .where(ReportUpload.id == upload.id)
+    )
+    return db.scalar(stmt)
+
+
 @router.patch("/{report_id}", response_model=ReportDetailRead, dependencies=[Depends(require_operator_user)])
 def update_report(report_id: int, payload: ReportUpdate, db: Session = Depends(get_db)) -> Report:
     report = db.get(Report, report_id)
@@ -115,6 +155,7 @@ def update_report(report_id: int, payload: ReportUpdate, db: Session = Depends(g
     db.commit()
     db.refresh(report)
     return _get_report_detail_or_404(db, report.id)
+
 
 @router.patch("/{report_id}/status", response_model=ReportDetailRead, dependencies=[Depends(require_operator_user)])
 def update_report_status(

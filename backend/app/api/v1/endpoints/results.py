@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
@@ -15,6 +16,7 @@ from app.schemas.result import (
 )
 
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
+
 
 
 def _get_result_detail_or_404(db: Session, result_id: int) -> NormalizedDataset:
@@ -36,6 +38,22 @@ def _get_result_detail_or_404(db: Session, result_id: int) -> NormalizedDataset:
 def list_results(db: Session = Depends(get_db)) -> list[NormalizedDataset]:
     stmt = select(NormalizedDataset).order_by(NormalizedDataset.id.desc())
     return list(db.scalars(stmt).all())
+
+
+@router.get("/by-task/{task_id}", response_model=NormalizedDatasetDetailRead)
+def get_result_by_task(task_id: int, db: Session = Depends(get_db)) -> NormalizedDataset:
+    stmt = (
+        select(NormalizedDataset)
+        .options(
+            selectinload(NormalizedDataset.processing_task),
+            selectinload(NormalizedDataset.report),
+        )
+        .where(NormalizedDataset.processing_task_id == task_id)
+    )
+    result = db.scalar(stmt)
+    if result is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Normalized dataset not found for this task.")
+    return result
 
 
 @router.get("/{result_id}", response_model=NormalizedDatasetDetailRead)

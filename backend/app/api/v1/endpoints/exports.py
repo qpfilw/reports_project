@@ -1,5 +1,7 @@
 from __future__ import annotations
+
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -9,9 +11,12 @@ from app.models.export_artifact import ExportArtifact
 from app.models.processing_task import ProcessingTask
 from app.models.report import Report
 from app.models.user import User
-from app.schemas.export import ExportArtifactCreate, ExportArtifactDetailRead, ExportArtifactRead
+from app.schemas.export import ExportArtifactCreate, ExportArtifactDetailRead, ExportArtifactRead, ExportRequest
+from app.services.export_service import ExportService
+from app.utils.storage import resolve_storage_path
 
 router = APIRouter(dependencies=[Depends(get_current_active_user)])
+
 
 def _get_export_detail_or_404(db: Session, export_id: int) -> ExportArtifact:
     stmt = (
@@ -29,14 +34,62 @@ def _get_export_detail_or_404(db: Session, export_id: int) -> ExportArtifact:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export artifact not found.")
     return export
 
+
 @router.get("/", response_model=list[ExportArtifactRead])
 def list_exports(db: Session = Depends(get_db)) -> list[ExportArtifact]:
     stmt = select(ExportArtifact).order_by(ExportArtifact.id.desc())
     return list(db.scalars(stmt).all())
 
+
 @router.get("/{export_id}", response_model=ExportArtifactDetailRead)
 def get_export(export_id: int, db: Session = Depends(get_db)) -> ExportArtifact:
     return _get_export_detail_or_404(db, export_id)
+
+
+@router.get("/{export_id}/download")
+def download_export(export_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    export = db.get(ExportArtifact, export_id)
+    if export is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Export artifact not found.")
+
+    file_path = resolve_storage_path(export.storage_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stored export file not found.")
+
+    format_value = getattr(export.format, "value", export.format)
+    media_type = {
+        "csv": "text/csv",
+        "xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "pdf": "application/pdf",
+    }.get(str(format_value), "application/octet-stream")
+    return FileResponse(path=file_path, media_type=media_type, filename=file_path.name)
+
+
+@router.post(
+    "/run",
+    response_model=ExportArtifactDetailRead,
+    status_code=status.HTTP_201_CREATED,
+    dependencies=[Depends(require_operator_user)],
+)
+def run_export(
+    payload: ExportRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> ExportArtifact:
+    if payload.processing_task_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="processing_task_id is required for result export.",
+        )
+
+    service = ExportService(db)
+    artifact = service.export_processing_result(
+        processing_task_id=payload.processing_task_id,
+        export_format=payload.format,
+        created_by=current_user,
+    )
+    return _get_export_detail_or_404(db, artifact.id)
+
 
 @router.post("/", response_model=ExportArtifactDetailRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_operator_user)])
 def create_export(payload: ExportArtifactCreate, db: Session = Depends(get_db)) -> ExportArtifact:

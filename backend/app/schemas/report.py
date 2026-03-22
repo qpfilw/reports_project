@@ -1,10 +1,27 @@
 from __future__ import annotations
 from datetime import date, datetime
-from pydantic import Field
+from pydantic import Field, field_validator
 from app.models.enums import ReportStatusEnum
 from .common import BaseSchema, IdSchema, TimestampSchema
 from .template import MlTemplateShortRead
 from .user import UserShortRead
+
+def _parse_flexible_date(value: object) -> object:
+    if value is None or isinstance(value, date):
+        return value
+
+    if isinstance(value, str):
+        raw = value.strip()
+        if not raw:
+            return value
+
+        for fmt in ("%Y-%m-%d", "%d.%m.%Y"):
+            try:
+                return datetime.strptime(raw, fmt).date()
+            except ValueError:
+                pass
+
+    return value
 
 class ReportTypeCreate(BaseSchema):
     code: str = Field(..., min_length=2, max_length=100)
@@ -45,6 +62,11 @@ class ReportCreate(BaseSchema):
     approver_id: int | None = None
     ml_template_id: int | None = None
 
+    @field_validator("report_period_start", "report_period_end", mode="before")
+    @classmethod
+    def parse_report_dates(cls, value: object) -> object:
+        return _parse_flexible_date(value)
+
 class ReportUpdate(BaseSchema):
     report_type_id: int | None = None
     title: str | None = Field(None, min_length=2, max_length=255)
@@ -57,6 +79,11 @@ class ReportUpdate(BaseSchema):
     version: int | None = Field(None, ge=1)
     last_comment: str | None = None
     is_archived: bool | None = None
+
+    @field_validator("report_period_start", "report_period_end", mode="before")
+    @classmethod
+    def parse_report_dates(cls, value: object) -> object:
+        return _parse_flexible_date(value)
 
 class ReportStatusUpdate(BaseSchema):
     status: ReportStatusEnum

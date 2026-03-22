@@ -1,5 +1,6 @@
 from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -94,6 +95,21 @@ def create_upload(payload: ReportUploadCreate, db: Session = Depends(get_db)) ->
     db.commit()
     db.refresh(upload)
     return _get_upload_detail_or_404(db, upload.id)
+
+@router.get("/{upload_id}/download")
+def download_upload(upload_id: int, db: Session = Depends(get_db)) -> FileResponse:
+    upload = db.get(ReportUpload, upload_id)
+    if upload is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found.")
+
+    from app.utils.storage import resolve_storage_path
+
+    file_path = resolve_storage_path(upload.storage_path)
+    if not file_path.exists():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Stored upload file not found.")
+
+    media_type = upload.content_type or "application/octet-stream"
+    return FileResponse(path=file_path, media_type=media_type, filename=upload.original_filename)
 
 @router.patch("/{upload_id}", response_model=ReportUploadDetailRead, dependencies=[Depends(require_operator_user)])
 def update_upload(upload_id: int, payload: ReportUploadUpdate, db: Session = Depends(get_db)) -> ReportUpload:
