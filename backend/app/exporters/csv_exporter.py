@@ -1,8 +1,6 @@
 from __future__ import annotations
-
 import csv
 from pathlib import Path
-
 from app.exporters.formatting import format_export_value
 
 def export_rows_to_csv(path: str | Path, rows: list[dict[str, object]]) -> None:

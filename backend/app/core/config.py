@@ -23,13 +23,15 @@ class Settings(BaseSettings):
         alias="DATABASE_URL",
     )
 
+    test_database_url: str | None = Field(default=None, alias="TEST_DATABASE_URL")
+
     jwt_secret_key: str = Field(
         default="change-me-access-secret",
-        alias="AHBPsz1CpB39lI4ih1i5lFUzwxLIDtCBMGc8eb9RQcPv5hPTgxSE8uLkUAp92omD",
+        alias="CJ3Mrqg02AxrngCUJTUUXqBZePtBjcBrS3DeiQz8WjAEWkyDRB0uHDhQHT_0Yvii",
     )
     jwt_refresh_secret_key: str = Field(
         default="change-me-refresh-secret",
-        alias="Mcu4v5SArhV8KhXbxY_cHmTt2F8gGi81BYK3EIswuF6UqrCNcJBVfpxwUBjFgxVK",
+        alias="6yBZx32Mg-qC89lbG2pktC5zisRLn5XwPdScs0cWeRS3AhjG3Sr0RsEOyph6RpdG",
     )
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60

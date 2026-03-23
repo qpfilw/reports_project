@@ -115,7 +115,6 @@ def ensure_self_or_admin(*, current_user: User, target_user_id: int) -> None:
         detail="You can only access your own resources.",
     )
 
-
 def ensure_user_has_project_membership(
     db: Session,
     *,
@@ -138,7 +137,6 @@ def ensure_user_has_project_membership(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="The selected user does not have approved access to this project.",
         )
-
 
 def ensure_template_matches_report_type(*, template, report_type_id: int) -> None:
     if template is None:
