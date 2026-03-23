@@ -94,6 +94,11 @@ class ReportStatusUpdate(BaseSchema):
     approved_at: datetime | None = None
     rejected_at: datetime | None = None
 
+class ReportWorkflowActionRequest(BaseSchema):
+    last_comment: str | None = None
+    current_assignee_id: int | None = None
+    approver_id: int | None = None
+
 class ReportShortRead(IdSchema):
     project_id: int
     report_type_id: int

@@ -1,14 +1,18 @@
 from __future__ import annotations
-from fastapi import APIRouter, Depends, HTTPException, status
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+
 from app.api.deps import get_db, require_admin_user
 from app.core.security import hash_password
+from app.models.enums import RoleCodeEnum
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.user import UserCreate, UserDetailRead, UserRead, UserUpdate
 
 router = APIRouter(dependencies=[Depends(require_admin_user)])
+
 
 def _get_user_detail_or_404(db: Session, user_id: int) -> User:
     stmt = (
@@ -21,14 +25,23 @@ def _get_user_detail_or_404(db: Session, user_id: int) -> User:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
     return user
 
+
 @router.get("/", response_model=list[UserRead])
-def list_users(db: Session = Depends(get_db)) -> list[User]:
-    stmt = select(User).order_by(User.id)
+def list_users(
+    role_code: RoleCodeEnum | None = Query(default=None),
+    db: Session = Depends(get_db),
+) -> list[User]:
+    stmt = select(User).join(Role, Role.id == User.role_id)
+    if role_code is not None:
+        stmt = stmt.where(Role.code == role_code)
+    stmt = stmt.order_by(User.id)
     return list(db.scalars(stmt).all())
+
 
 @router.get("/{user_id}", response_model=UserDetailRead)
 def get_user(user_id: int, db: Session = Depends(get_db)) -> User:
     return _get_user_detail_or_404(db, user_id)
+
 
 @router.post("/", response_model=UserDetailRead, status_code=status.HTTP_201_CREATED)
 def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> User:
@@ -53,6 +66,7 @@ def create_user(payload: UserCreate, db: Session = Depends(get_db)) -> User:
     db.refresh(user)
 
     return _get_user_detail_or_404(db, user.id)
+
 
 @router.patch("/{user_id}", response_model=UserDetailRead)
 def update_user(user_id: int, payload: UserUpdate, db: Session = Depends(get_db)) -> User:

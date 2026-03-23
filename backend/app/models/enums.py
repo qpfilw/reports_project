@@ -4,6 +4,7 @@ from enum import Enum
 
 
 class RoleCodeEnum(str, Enum):
+    PENDING = "pending"
     ADMIN = "admin"
     MANAGER = "manager"
     OPERATOR = "operator"
@@ -17,8 +18,18 @@ class ProjectMemberRoleEnum(str, Enum):
     VIEWER = "viewer"
 
 
+class ProjectAccessStatusEnum(str, Enum):
+    REQUESTED = "requested"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class ReportStatusEnum(str, Enum):
     DRAFT = "draft"
+    UPLOADED = "uploaded"
+    PROCESSING = "processing"
+    PROCESSED = "processed"
+    FAILED = "failed"
     ON_REVIEW = "on_review"
     ON_APPROVAL = "on_approval"
     APPROVED = "approved"

@@ -1,15 +1,20 @@
 from __future__ import annotations
+
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
-from app.api.deps import get_current_active_user, get_db, require_operator_user
+
+from app.api.deps import require_approved_user, get_db, require_operator_user
+from app.core.access import apply_project_scope, ensure_project_read_access, ensure_project_write_access
 from app.models.enums import ProcessingLogLevelEnum, ProcessingStatusEnum
 from app.models.processing_log import ProcessingLog
 from app.models.processing_task import ProcessingTask
+from app.models.report import Report
 from app.schemas.processing import ProcessingTaskDetailRead, ProcessingTaskRead
 from app.schemas.task import TaskProgressResponse, TaskQueueInfo
 
-router = APIRouter(dependencies=[Depends(get_current_active_user)])
+router = APIRouter(dependencies=[Depends(require_approved_user)])
+
 
 def _get_task_detail_or_404(db: Session, task_id: int) -> ProcessingTask:
     stmt = (
@@ -29,6 +34,7 @@ def _get_task_detail_or_404(db: Session, task_id: int) -> ProcessingTask:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
     return task
 
+
 @router.get("/", response_model=list[ProcessingTaskRead])
 def list_tasks(
     report_id: int | None = Query(default=None),
@@ -37,8 +43,10 @@ def list_tasks(
     created_by: int | None = Query(default=None),
     status_filter: ProcessingStatusEnum | None = Query(default=None, alias="status"),
     db: Session = Depends(get_db),
+    current_user=Depends(require_approved_user),
 ) -> list[ProcessingTask]:
-    stmt = select(ProcessingTask)
+    stmt = select(ProcessingTask).join(Report, ProcessingTask.report_id == Report.id)
+    stmt = apply_project_scope(stmt, project_column=Report.project_id, current_user=current_user)
 
     if report_id is not None:
         stmt = stmt.where(ProcessingTask.report_id == report_id)
@@ -54,33 +62,32 @@ def list_tasks(
     stmt = stmt.order_by(ProcessingTask.id.desc())
     return list(db.scalars(stmt).all())
 
-@router.get("/queue-info", response_model=TaskQueueInfo)
-def get_queue_info(db: Session = Depends(get_db)) -> TaskQueueInfo:
-    queued = db.scalar(
-        select(func.count()).select_from(ProcessingTask).where(ProcessingTask.status == ProcessingStatusEnum.QUEUED)
-    ) or 0
-    running = db.scalar(
-        select(func.count()).select_from(ProcessingTask).where(ProcessingTask.status == ProcessingStatusEnum.RUNNING)
-    ) or 0
-    failed = db.scalar(
-        select(func.count()).select_from(ProcessingTask).where(ProcessingTask.status == ProcessingStatusEnum.FAILED)
-    ) or 0
-    success = db.scalar(
-        select(func.count()).select_from(ProcessingTask).where(ProcessingTask.status == ProcessingStatusEnum.SUCCESS)
-    ) or 0
 
-    return TaskQueueInfo(
-        queued=queued,
-        running=running,
-        failed=failed,
-        success=success,
-    )
+@router.get("/queue-info", response_model=TaskQueueInfo)
+def get_queue_info(
+    db: Session = Depends(get_db),
+    current_user=Depends(require_approved_user),
+) -> TaskQueueInfo:
+    stmt = select(ProcessingTask).join(Report, ProcessingTask.report_id == Report.id)
+    stmt = apply_project_scope(stmt, project_column=Report.project_id, current_user=current_user)
+    subquery = stmt.subquery()
+
+    queued = db.scalar(select(func.count()).select_from(subquery).where(subquery.c.status == ProcessingStatusEnum.QUEUED.value)) or 0
+    running = db.scalar(select(func.count()).select_from(subquery).where(subquery.c.status == ProcessingStatusEnum.RUNNING.value)) or 0
+    failed = db.scalar(select(func.count()).select_from(subquery).where(subquery.c.status == ProcessingStatusEnum.FAILED.value)) or 0
+    success = db.scalar(select(func.count()).select_from(subquery).where(subquery.c.status == ProcessingStatusEnum.SUCCESS.value)) or 0
+
+    return TaskQueueInfo(queued=queued, running=running, failed=failed, success=success)
+
 
 @router.get("/{task_id}/progress", response_model=TaskProgressResponse)
-def get_task_progress(task_id: int, db: Session = Depends(get_db)) -> TaskProgressResponse:
-    task = db.get(ProcessingTask, task_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
+def get_task_progress(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_approved_user),
+) -> TaskProgressResponse:
+    task = _get_task_detail_or_404(db, task_id)
+    ensure_project_read_access(db, project_id=task.report.project_id, current_user=current_user)
 
     return TaskProgressResponse(
         task_id=task.id,
@@ -93,11 +100,15 @@ def get_task_progress(task_id: int, db: Session = Depends(get_db)) -> TaskProgre
         error_summary=task.error_summary,
     )
 
+
 @router.post("/{task_id}/retry", response_model=ProcessingTaskDetailRead, dependencies=[Depends(require_operator_user)])
-def retry_task(task_id: int, db: Session = Depends(get_db)) -> ProcessingTask:
-    task = db.get(ProcessingTask, task_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
+def retry_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_operator_user),
+) -> ProcessingTask:
+    task = _get_task_detail_or_404(db, task_id)
+    ensure_project_write_access(db, project_id=task.report.project_id, current_user=current_user)
 
     task.status = ProcessingStatusEnum.RETRY
     task.progress = 0
@@ -119,11 +130,15 @@ def retry_task(task_id: int, db: Session = Depends(get_db)) -> ProcessingTask:
     db.refresh(task)
     return _get_task_detail_or_404(db, task.id)
 
+
 @router.post("/{task_id}/cancel", response_model=ProcessingTaskDetailRead, dependencies=[Depends(require_operator_user)])
-def cancel_task(task_id: int, db: Session = Depends(get_db)) -> ProcessingTask:
-    task = db.get(ProcessingTask, task_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found.")
+def cancel_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_operator_user),
+) -> ProcessingTask:
+    task = _get_task_detail_or_404(db, task_id)
+    ensure_project_write_access(db, project_id=task.report.project_id, current_user=current_user)
 
     if task.status in {ProcessingStatusEnum.SUCCESS, ProcessingStatusEnum.FAILED, ProcessingStatusEnum.CANCELLED}:
         raise HTTPException(

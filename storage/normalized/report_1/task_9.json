@@ -1,0 +1,97 @@
+{
+  "rows": [
+    {
+      "id": 1,
+      "name": "Отдел продаж",
+      "date": "2026-03-01",
+      "amount": 120000,
+      "count": 15
+    },
+    {
+      "id": 2,
+      "name": "Отдел закупок",
+      "date": "2026-03-02",
+      "amount": 83000,
+      "count": 9
+    },
+    {
+      "id": 3,
+      "name": "Отдел логистики",
+      "date": "2026-03-03",
+      "amount": 91000,
+      "count": 14
+    }
+  ],
+  "schema_json": {
+    "columns": [
+      "id",
+      "name",
+      "date",
+      "amount",
+      "count"
+    ],
+    "column_types": {
+      "id": "int",
+      "name": "str",
+      "date": "str",
+      "amount": "int",
+      "count": "int"
+    }
+  },
+  "summary_json": {
+    "total_rows": 3,
+    "valid_rows": 3,
+    "invalid_rows": 0,
+    "warnings": 0,
+    "errors": 0,
+    "aggregation": {
+      "columns": 5,
+      "rows": 3,
+      "numeric_columns": {
+        "id": {
+          "count": 3,
+          "sum": 6.0,
+          "min": 1.0,
+          "max": 3.0
+        },
+        "amount": {
+          "count": 3,
+          "sum": 294000.0,
+          "min": 83000.0,
+          "max": 120000.0
+        },
+        "count": {
+          "count": 3,
+          "sum": 38.0,
+          "min": 9.0,
+          "max": 15.0
+        }
+      }
+    }
+  },
+  "preview_json": [
+    {
+      "id": 1,
+      "name": "Отдел продаж",
+      "date": "2026-03-01",
+      "amount": 120000,
+      "count": 15
+    },
+    {
+      "id": 2,
+      "name": "Отдел закупок",
+      "date": "2026-03-02",
+      "amount": 83000,
+      "count": 9
+    },
+    {
+      "id": 3,
+      "name": "Отдел логистики",
+      "date": "2026-03-03",
+      "amount": 91000,
+      "count": 14
+    }
+  ],
+  "warnings": [],
+  "errors": []
+}

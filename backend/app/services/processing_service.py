@@ -5,6 +5,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
+from app.core.config import get_settings
 from app.models.enums import ProcessingLogLevelEnum, ProcessingStatusEnum
 from app.models.normalized_dataset import NormalizedDataset
 from app.models.processing_log import ProcessingLog
@@ -13,14 +14,20 @@ from app.models.report import Report
 from app.models.report_upload import ReportUpload
 from app.models.task_error import TaskError
 from app.models.user import User
+from app.services.ml_service import MLService
 from app.services.normalization_service import NormalizationService
+from app.services.report_service import ReportService
 from app.utils.storage import resolve_storage_path
+
+settings = get_settings()
 
 
 class ProcessingService:
     def __init__(self, db: Session):
         self.db = db
         self.normalization_service = NormalizationService()
+        self.report_service = ReportService(db)
+        self.ml_service = MLService(db)
 
     def launch_processing_task(
         self,
@@ -46,6 +53,8 @@ class ProcessingService:
                 detail="Upload does not belong to the specified report.",
             )
 
+        self.report_service.mark_processing(report)
+
         task = ProcessingTask(
             report_id=report_id,
             report_upload_id=report_upload_id,
@@ -66,12 +75,22 @@ class ProcessingService:
             level=ProcessingLogLevelEnum.INFO,
             stage="queue",
             message="Задача поставлена в очередь на обработку.",
+            context_json={"dispatch_mode": settings.processing_dispatch_mode},
         )
         self.db.commit()
         self.db.refresh(task)
         return task
 
     def dispatch_processing_task(self, *, task_id: int) -> ProcessingTask:
+        task = self.db.get(ProcessingTask, task_id)
+        if task is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Processing task not found.")
+
+        self._ensure_task_can_be_dispatched(task)
+
+        dispatch_mode = (settings.processing_dispatch_mode or "sync").strip().lower()
+        if dispatch_mode == "celery":
+            return self._enqueue_processing_task(task)
         return self.run_processing_task_sync(task_id=task_id)
 
     def run_processing_task_sync(self, *, task_id: int) -> ProcessingTask:
@@ -93,6 +112,33 @@ class ProcessingService:
         )
 
         try:
+            ml_payload = self.ml_service.apply_prediction_to_task(
+                task=task,
+                upload=upload,
+                forced_template_id=task.ml_template_id,
+            )
+            self.append_log(
+                task=task,
+                level=ProcessingLogLevelEnum.INFO,
+                stage="ml_prediction",
+                message="Выполнен анализ структуры файла и подбор шаблона.",
+                context_json={
+                    "headers": ml_payload["headers"],
+                    "selection_mode": ml_payload["selection_mode"],
+                    "mapping_confirmation_required": ml_payload["mapping_confirmation_required"],
+                    "selected_template_id": ml_payload["selected_template"].id if ml_payload["selected_template"] is not None else None,
+                    "selected_template_code": ml_payload["selected_template"].code if ml_payload["selected_template"] is not None else None,
+                    "prediction_candidates": [
+                        {
+                            "template_id": item["template"].id,
+                            "template_code": item["template"].code,
+                            "confidence": float(item["confidence"]),
+                        }
+                        for item in ml_payload["prediction"]["candidates"][:5]
+                    ],
+                },
+            )
+
             normalization_result = self.normalization_service.normalize_file(
                 source_path=resolve_storage_path(upload.storage_path),
                 report_id=task.report_id,
@@ -194,8 +240,10 @@ class ProcessingService:
                 "quality_score": normalization_result["quality_score"],
                 "warnings_count": len(list(normalization_result["warnings"])),
                 "errors_count": len(list(normalization_result["errors"])),
+                "mapping_confirmation_required": bool((task.params_json or {}).get("mapping_confirmation_required", False)),
             },
         )
+        self.report_service.mark_processed(task.report)
         self.db.flush()
 
     def _mark_task_failed(
@@ -226,6 +274,7 @@ class ProcessingService:
                 "errors_count": task.error_count,
             },
         )
+        self.report_service.mark_failed(task.report, error_summary=error_summary)
         self.db.flush()
 
     def _store_normalized_dataset(self, *, task: ProcessingTask, normalization_result: dict[str, object]) -> None:
@@ -276,6 +325,33 @@ class ProcessingService:
         task.error_count = len(list(normalization_result["errors"]))
         self.db.flush()
 
+    def _enqueue_processing_task(self, task: ProcessingTask) -> ProcessingTask:
+        try:
+            from app.tasks.report_tasks import run_processing_task
+        except ModuleNotFoundError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Celery is not installed. Install celery[redis] and retry.",
+            ) from exc
+
+        async_result = run_processing_task.delay(task.id)
+        task.celery_task_id = async_result.id
+        task.status = ProcessingStatusEnum.QUEUED
+        task.progress = 0
+        self.append_log(
+            task=task,
+            level=ProcessingLogLevelEnum.INFO,
+            stage="dispatch",
+            message="Задача отправлена в Celery worker.",
+            context_json={
+                "dispatch_mode": "celery",
+                "celery_task_id": async_result.id,
+            },
+        )
+        self.db.commit()
+        self.db.refresh(task)
+        return task
+
     @staticmethod
     def _has_validation_errors(normalization_result: dict[str, object]) -> bool:
         return bool(normalization_result.get("has_fatal_errors")) or bool(normalization_result.get("errors"))
@@ -298,3 +374,12 @@ class ProcessingService:
         if dataset is not None:
             self.db.delete(dataset)
             self.db.flush()
+
+    @staticmethod
+    def _ensure_task_can_be_dispatched(task: ProcessingTask) -> None:
+        if task.status == ProcessingStatusEnum.RUNNING:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task is already running.")
+        if task.status == ProcessingStatusEnum.SUCCESS:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task has already completed successfully.")
+        if task.status == ProcessingStatusEnum.CANCELLED:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Cancelled task cannot be dispatched.")

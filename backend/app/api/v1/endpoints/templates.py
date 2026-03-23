@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_db, get_current_active_user, get_db, require_manager_user
+from app.api.deps import get_db, require_approved_user, require_manager_user
 from app.models.ml_template import MlTemplate
 from app.models.report_type import ReportType
 from app.models.user import User
@@ -14,7 +14,7 @@ from app.schemas.template import (
     MlTemplateUpdate,
 )
 
-router = APIRouter(dependencies=[Depends(get_current_active_user)])
+router = APIRouter(dependencies=[Depends(require_approved_user)])
 
 def _get_template_detail_or_404(db: Session, template_id: int) -> MlTemplate:
     stmt = (

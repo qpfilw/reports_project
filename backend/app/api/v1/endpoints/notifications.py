@@ -1,10 +1,13 @@
 from __future__ import annotations
+
 from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_current_active_user, get_db, require_operator_user
+from app.api.deps import require_approved_user, get_db, require_operator_user
+from app.core.access import ensure_self_or_admin, is_admin
 from app.models.notification import Notification
 from app.models.processing_task import ProcessingTask
 from app.models.project import Project
@@ -17,7 +20,8 @@ from app.schemas.notifications import (
     NotificationUpdate,
 )
 
-router = APIRouter(dependencies=[Depends(get_current_active_user)])
+router = APIRouter(dependencies=[Depends(require_approved_user)])
+
 
 def _get_notification_detail_or_404(db: Session, notification_id: int) -> Notification:
     stmt = (
@@ -35,27 +39,44 @@ def _get_notification_detail_or_404(db: Session, notification_id: int) -> Notifi
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found.")
     return notification
 
+
 @router.get("/", response_model=list[NotificationRead])
-def list_notifications(db: Session = Depends(get_db)) -> list[Notification]:
-    stmt = select(Notification).order_by(Notification.id.desc())
+def list_notifications(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> list[Notification]:
+    stmt = select(Notification)
+    if not is_admin(current_user):
+        stmt = stmt.where(Notification.user_id == current_user.id)
+    stmt = stmt.order_by(Notification.id.desc())
     return list(db.scalars(stmt).all())
 
+
 @router.get("/{notification_id}", response_model=NotificationDetailRead)
-def get_notification(notification_id: int, db: Session = Depends(get_db)) -> Notification:
-    return _get_notification_detail_or_404(db, notification_id)
+def get_notification(
+    notification_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> Notification:
+    notification = _get_notification_detail_or_404(db, notification_id)
+    ensure_self_or_admin(current_user=current_user, target_user_id=notification.user_id)
+    return notification
+
 
 @router.get("/users/{user_id}", response_model=list[NotificationRead])
-def list_user_notifications(user_id: int, db: Session = Depends(get_db)) -> list[Notification]:
+def list_user_notifications(
+    user_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> list[Notification]:
     user = db.get(User, user_id)
     if user is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    ensure_self_or_admin(current_user=current_user, target_user_id=user_id)
 
-    stmt = (
-        select(Notification)
-        .where(Notification.user_id == user_id)
-        .order_by(Notification.id.desc())
-    )
+    stmt = select(Notification).where(Notification.user_id == user_id).order_by(Notification.id.desc())
     return list(db.scalars(stmt).all())
+
 
 @router.post("/", response_model=NotificationDetailRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_operator_user)])
 def create_notification(payload: NotificationCreate, db: Session = Depends(get_db)) -> Notification:
@@ -84,15 +105,18 @@ def create_notification(payload: NotificationCreate, db: Session = Depends(get_d
     db.refresh(notification)
     return _get_notification_detail_or_404(db, notification.id)
 
+
 @router.patch("/{notification_id}", response_model=NotificationDetailRead, dependencies=[Depends(require_operator_user)])
 def update_notification(
     notification_id: int,
     payload: NotificationUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
 ) -> Notification:
     notification = db.get(Notification, notification_id)
     if notification is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found.")
+    ensure_self_or_admin(current_user=current_user, target_user_id=notification.user_id)
 
     data = payload.model_dump(exclude_unset=True)
 
@@ -109,11 +133,17 @@ def update_notification(
     db.refresh(notification)
     return _get_notification_detail_or_404(db, notification.id)
 
+
 @router.post("/{notification_id}/read", response_model=NotificationDetailRead)
-def mark_notification_as_read(notification_id: int, db: Session = Depends(get_db)) -> Notification:
+def mark_notification_as_read(
+    notification_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> Notification:
     notification = db.get(Notification, notification_id)
     if notification is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Notification not found.")
+    ensure_self_or_admin(current_user=current_user, target_user_id=notification.user_id)
 
     notification.is_read = True
     notification.read_at = datetime.now(timezone.utc)

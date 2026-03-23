@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.models.report import Report
 from app.models.report_upload import ReportUpload
 from app.models.user import User
+from app.services.report_service import ReportService
 from app.utils.file_hash import sha256_for_file
 from app.utils.storage import build_upload_relative_path, resolve_storage_path
 
@@ -16,6 +17,7 @@ class UploadService:
     def __init__(self, db: Session):
         self.db = db
         self.settings = get_settings()
+        self.report_service = ReportService(db)
 
     def create_report_upload(
         self,
@@ -70,6 +72,12 @@ class UploadService:
                 comment=comment,
             )
             self.db.add(upload)
+            self.db.flush()
+            self.report_service.mark_uploaded(
+                report,
+                upload_version=upload.upload_version,
+                comment=comment or f"Загружена версия файла №{upload.upload_version}.",
+            )
             self.db.commit()
             self.db.refresh(upload)
             return upload

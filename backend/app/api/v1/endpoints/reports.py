@@ -4,7 +4,16 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, s
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_current_active_user, get_db, require_operator_user
+from app.api.deps import get_db, require_approved_user, require_manager_user, require_operator_user
+from app.core.access import (
+    apply_project_scope,
+    ensure_project_read_access,
+    ensure_project_write_access,
+    ensure_template_matches_report_type,
+    ensure_user_has_project_membership,
+    is_admin,
+)
+from app.models.enums import ReportStatusEnum
 from app.models.ml_template import MlTemplate
 from app.models.project import Project
 from app.models.report import Report
@@ -17,11 +26,21 @@ from app.schemas.report import (
     ReportRead,
     ReportStatusUpdate,
     ReportUpdate,
+    ReportWorkflowActionRequest,
 )
 from app.schemas.upload import ReportUploadDetailRead
+from app.services.report_service import ReportService
 from app.services.upload_service import UploadService
 
-router = APIRouter(dependencies=[Depends(get_current_active_user)])
+router = APIRouter(dependencies=[Depends(require_approved_user)])
+
+
+MANAGER_ONLY_REPORT_STATUSES = {
+    ReportStatusEnum.ON_APPROVAL,
+    ReportStatusEnum.APPROVED,
+    ReportStatusEnum.REJECTED,
+    ReportStatusEnum.ARCHIVED,
+}
 
 
 def _get_report_detail_or_404(db: Session, report_id: int) -> Report:
@@ -42,22 +61,62 @@ def _get_report_detail_or_404(db: Session, report_id: int) -> Report:
     return report
 
 
+def _get_report_for_update_or_404(db: Session, report_id: int, current_user: User) -> Report:
+    report = db.get(Report, report_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+    ensure_project_write_access(db, project_id=report.project_id, current_user=current_user)
+    return report
+
+
+def _validate_related_users(
+    db: Session,
+    *,
+    project_id: int,
+    current_assignee_id: int | None = None,
+    approver_id: int | None = None,
+) -> None:
+    if current_assignee_id is not None:
+        if db.get(User, current_assignee_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee user not found.")
+        ensure_user_has_project_membership(db, project_id=project_id, user_id=current_assignee_id)
+    if approver_id is not None:
+        if db.get(User, approver_id) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approver user not found.")
+        ensure_user_has_project_membership(db, project_id=project_id, user_id=approver_id)
+
+
 @router.get("/", response_model=list[ReportRead])
-def list_reports(db: Session = Depends(get_db)) -> list[Report]:
-    stmt = select(Report).order_by(Report.id)
+def list_reports(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> list[Report]:
+    stmt = apply_project_scope(select(Report), project_column=Report.project_id, current_user=current_user)
+    stmt = stmt.order_by(Report.id)
     return list(db.scalars(stmt).all())
 
 
 @router.get("/{report_id}", response_model=ReportDetailRead)
-def get_report(report_id: int, db: Session = Depends(get_db)) -> Report:
-    return _get_report_detail_or_404(db, report_id)
+def get_report(
+    report_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> Report:
+    report = _get_report_detail_or_404(db, report_id)
+    ensure_project_read_access(db, project_id=report.project_id, current_user=current_user)
+    return report
 
 
 @router.post("/", response_model=ReportDetailRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_operator_user)])
-def create_report(payload: ReportCreate, db: Session = Depends(get_db)) -> Report:
+def create_report(
+    payload: ReportCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
+) -> Report:
     project = db.get(Project, payload.project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+    ensure_project_write_access(db, project_id=payload.project_id, current_user=current_user)
 
     report_type = db.get(ReportType, payload.report_type_id)
     if report_type is None:
@@ -67,20 +126,24 @@ def create_report(payload: ReportCreate, db: Session = Depends(get_db)) -> Repor
     if creator is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Creator user not found.")
 
-    if payload.current_assignee_id is not None:
-        assignee = db.get(User, payload.current_assignee_id)
-        if assignee is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee user not found.")
+    if not is_admin(current_user) and payload.creator_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can create reports only on your own behalf.",
+        )
 
-    if payload.approver_id is not None:
-        approver = db.get(User, payload.approver_id)
-        if approver is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approver user not found.")
+    _validate_related_users(
+        db,
+        project_id=payload.project_id,
+        current_assignee_id=payload.current_assignee_id,
+        approver_id=payload.approver_id,
+    )
 
     if payload.ml_template_id is not None:
-        template = db.get(MlTemplate, payload.ml_template_id)
-        if template is None:
+        ml_template = db.get(MlTemplate, payload.ml_template_id)
+        if ml_template is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ML template not found.")
+        ensure_template_matches_report_type(template=ml_template, report_type_id=payload.report_type_id)
 
     report = Report(**payload.model_dump())
     db.add(report)
@@ -100,8 +163,11 @@ def upload_report_file(
     file: UploadFile = File(...),
     comment: str | None = Form(default=None),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_operator_user),
 ):
+    report = _get_report_detail_or_404(db, report_id)
+    ensure_project_write_access(db, project_id=report.project_id, current_user=current_user)
+
     service = UploadService(db)
     upload = service.create_report_upload(
         report_id=report_id,
@@ -122,32 +188,33 @@ def upload_report_file(
 
 
 @router.patch("/{report_id}", response_model=ReportDetailRead, dependencies=[Depends(require_operator_user)])
-def update_report(report_id: int, payload: ReportUpdate, db: Session = Depends(get_db)) -> Report:
-    report = db.get(Report, report_id)
-    if report is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+def update_report(
+    report_id: int,
+    payload: ReportUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
+) -> Report:
+    report = _get_report_for_update_or_404(db, report_id, current_user)
 
     data = payload.model_dump(exclude_unset=True)
 
     if "report_type_id" in data and data["report_type_id"] is not None:
-        report_type = db.get(ReportType, data["report_type_id"])
-        if report_type is None:
+        if db.get(ReportType, data["report_type_id"]) is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report type not found.")
 
-    if "current_assignee_id" in data and data["current_assignee_id"] is not None:
-        assignee = db.get(User, data["current_assignee_id"])
-        if assignee is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee user not found.")
-
-    if "approver_id" in data and data["approver_id"] is not None:
-        approver = db.get(User, data["approver_id"])
-        if approver is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approver user not found.")
+    _validate_related_users(
+        db,
+        project_id=report.project_id,
+        current_assignee_id=data.get("current_assignee_id"),
+        approver_id=data.get("approver_id"),
+    )
 
     if "ml_template_id" in data and data["ml_template_id"] is not None:
-        template = db.get(MlTemplate, data["ml_template_id"])
-        if template is None:
+        ml_template = db.get(MlTemplate, data["ml_template_id"])
+        if ml_template is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="ML template not found.")
+        report_type_id = data.get("report_type_id", report.report_type_id)
+        ensure_template_matches_report_type(template=ml_template, report_type_id=report_type_id)
 
     for field, value in data.items():
         setattr(report, field, value)
@@ -162,25 +229,116 @@ def update_report_status(
     report_id: int,
     payload: ReportStatusUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
 ) -> Report:
-    report = db.get(Report, report_id)
-    if report is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+    report = _get_report_for_update_or_404(db, report_id, current_user)
 
-    if payload.current_assignee_id is not None:
-        assignee = db.get(User, payload.current_assignee_id)
-        if assignee is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Assignee user not found.")
+    target_status = ReportStatusEnum(payload.status)
+    if target_status in MANAGER_ONLY_REPORT_STATUSES:
+        require_manager_user(current_user)
 
-    if payload.approver_id is not None:
-        approver = db.get(User, payload.approver_id)
-        if approver is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approver user not found.")
+    _validate_related_users(
+        db,
+        project_id=payload.project_id,
+        current_assignee_id=payload.current_assignee_id,
+        approver_id=payload.approver_id,
+    )
 
-    data = payload.model_dump(exclude_unset=True)
-    for field, value in data.items():
-        setattr(report, field, value)
+    service = ReportService(db)
+    service.transition_report_status(
+        report,
+        target_status=target_status,
+        comment=payload.last_comment,
+        current_assignee_id=payload.current_assignee_id,
+        approver_id=payload.approver_id,
+    )
+    db.commit()
+    db.refresh(report)
+    return _get_report_detail_or_404(db, report.id)
 
+
+@router.post("/{report_id}/submit-review", response_model=ReportDetailRead, dependencies=[Depends(require_operator_user)])
+def submit_report_for_review(
+    report_id: int,
+    payload: ReportWorkflowActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
+) -> Report:
+    report = _get_report_for_update_or_404(db, report_id, current_user)
+    _validate_related_users(db, project_id=report.project_id, current_assignee_id=payload.current_assignee_id)
+
+    service = ReportService(db)
+    service.submit_for_review(
+        report,
+        comment=payload.last_comment,
+        current_assignee_id=payload.current_assignee_id,
+    )
+    db.commit()
+    db.refresh(report)
+    return _get_report_detail_or_404(db, report.id)
+
+
+@router.post("/{report_id}/submit-approval", response_model=ReportDetailRead, dependencies=[Depends(require_manager_user)])
+def submit_report_for_approval(
+    report_id: int,
+    payload: ReportWorkflowActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager_user),
+) -> Report:
+    report = _get_report_for_update_or_404(db, report_id, current_user)
+    _validate_related_users(db, project_id=report.project_id, approver_id=payload.approver_id)
+
+    service = ReportService(db)
+    service.submit_for_approval(
+        report,
+        comment=payload.last_comment,
+        approver_id=payload.approver_id,
+    )
+    db.commit()
+    db.refresh(report)
+    return _get_report_detail_or_404(db, report.id)
+
+
+@router.post("/{report_id}/approve", response_model=ReportDetailRead, dependencies=[Depends(require_manager_user)])
+def approve_report(
+    report_id: int,
+    payload: ReportWorkflowActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager_user),
+) -> Report:
+    report = _get_report_for_update_or_404(db, report_id, current_user)
+    service = ReportService(db)
+    service.approve(report, comment=payload.last_comment)
+    db.commit()
+    db.refresh(report)
+    return _get_report_detail_or_404(db, report.id)
+
+
+@router.post("/{report_id}/reject", response_model=ReportDetailRead, dependencies=[Depends(require_manager_user)])
+def reject_report(
+    report_id: int,
+    payload: ReportWorkflowActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager_user),
+) -> Report:
+    report = _get_report_for_update_or_404(db, report_id, current_user)
+    service = ReportService(db)
+    service.reject(report, comment=payload.last_comment)
+    db.commit()
+    db.refresh(report)
+    return _get_report_detail_or_404(db, report.id)
+
+
+@router.post("/{report_id}/rework", response_model=ReportDetailRead, dependencies=[Depends(require_operator_user)])
+def send_report_to_rework(
+    report_id: int,
+    payload: ReportWorkflowActionRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
+) -> Report:
+    report = _get_report_for_update_or_404(db, report_id, current_user)
+    service = ReportService(db)
+    service.send_to_rework(report, comment=payload.last_comment)
     db.commit()
     db.refresh(report)
     return _get_report_detail_or_404(db, report.id)

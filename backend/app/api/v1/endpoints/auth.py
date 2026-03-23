@@ -1,9 +1,12 @@
 from __future__ import annotations
+
 from datetime import datetime, timezone
+
 from fastapi import APIRouter, Depends, HTTPException, status
-from sqlalchemy import case, select
+from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
-from app.api.deps import get_current_active_user, get_db
+
+from app.api.deps import get_current_active_user, get_db, require_approved_user
 from app.core.security import (
     create_access_token,
     create_refresh_token,
@@ -26,6 +29,7 @@ from app.schemas.user import UserDetailRead
 
 router = APIRouter()
 
+
 def _get_user_detail_or_404(db: Session, user_id: int) -> User:
     stmt = (
         select(User)
@@ -40,6 +44,7 @@ def _get_user_detail_or_404(db: Session, user_id: int) -> User:
         )
     return user
 
+
 def _issue_tokens(user: User) -> TokenPair:
     role_code = user.role.code.value if hasattr(user.role.code, "value") else str(user.role.code)
     return TokenPair(
@@ -48,32 +53,17 @@ def _issue_tokens(user: User) -> TokenPair:
         token_type="bearer",
     )
 
-def _get_default_registration_role(db: Session) -> Role:
-    preferred_order = [
-        RoleCodeEnum.VIEWER,
-        RoleCodeEnum.OPERATOR,
-        RoleCodeEnum.MANAGER,
-    ]
 
-    stmt = (
-        select(Role)
-        .where(Role.code.in_(preferred_order))
-        .order_by(
-            case(
-                (Role.code == RoleCodeEnum.VIEWER, 1),
-                (Role.code == RoleCodeEnum.OPERATOR, 2),
-                (Role.code == RoleCodeEnum.MANAGER, 3),
-                else_=99,
-            )
-        )
-    )
+def _get_pending_registration_role(db: Session) -> Role:
+    stmt = select(Role).where(Role.code == RoleCodeEnum.PENDING)
     role = db.scalar(stmt)
     if role is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="No safe default role exists. Create VIEWER or OPERATOR role first.",
+            detail="Pending role does not exist. Seed roles first.",
         )
     return role
+
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
 def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthResponse:
@@ -84,23 +74,10 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthRes
             detail="Email already exists.",
         )
 
-    if payload.role_id is not None:
-        role = db.get(Role, payload.role_id)
-        if role is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Role not found.",
-            )
-        if role.code == RoleCodeEnum.ADMIN:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Public registration with ADMIN role is not allowed.",
-            )
-    else:
-        role = _get_default_registration_role(db)
+    role = _get_pending_registration_role(db)
 
     user = User(
-        email=payload.email,
+        email=payload.email.strip().lower(),
         password_hash=hash_password(payload.password),
         full_name=payload.full_name,
         position=payload.position,
@@ -117,12 +94,13 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthRes
     tokens = _issue_tokens(user)
     return AuthResponse(user=UserDetailRead.model_validate(user), tokens=tokens)
 
+
 @router.post("/login", response_model=AuthResponse)
 def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
     stmt = (
         select(User)
         .options(selectinload(User.role))
-        .where(User.email == payload.email)
+        .where(User.email == payload.email.strip().lower())
     )
     user = db.scalar(stmt)
 
@@ -151,6 +129,7 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
     tokens = _issue_tokens(user)
     return AuthResponse(user=UserDetailRead.model_validate(user), tokens=tokens)
 
+
 @router.post("/refresh", response_model=TokenPair)
 def refresh_tokens(payload: RefreshTokenRequest, db: Session = Depends(get_db)) -> TokenPair:
     try:
@@ -172,15 +151,17 @@ def refresh_tokens(payload: RefreshTokenRequest, db: Session = Depends(get_db)) 
 
     return _issue_tokens(user)
 
+
 @router.get("/me", response_model=UserDetailRead)
 def get_me(current_user: User = Depends(get_current_active_user)) -> UserDetailRead:
     return UserDetailRead.model_validate(current_user)
+
 
 @router.post("/change-password")
 def change_password(
     payload: ChangePasswordRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_approved_user),
 ) -> dict[str, str]:
     if not verify_password(payload.current_password, current_user.password_hash):
         raise HTTPException(

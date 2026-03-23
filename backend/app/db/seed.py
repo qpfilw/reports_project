@@ -18,6 +18,11 @@ class RolePreset:
 
 ROLE_PRESETS: Final[list[RolePreset]] = [
     RolePreset(
+        code=RoleCodeEnum.PENDING,
+        name="Ожидает подтверждения",
+        description="Новая учетная запись, ожидающая подтверждения администратором.",
+    ),
+    RolePreset(
         code=RoleCodeEnum.ADMIN,
         name="Администратор",
         description="Полный доступ к управлению системой",
@@ -38,6 +43,7 @@ ROLE_PRESETS: Final[list[RolePreset]] = [
         description="Просмотр данных и результатов без возможности вносить изменения",
     ),
 ]
+
 
 def seed_roles(db: Session) -> list[Role]:
     existing_roles = {
@@ -66,9 +72,11 @@ def seed_roles(db: Session) -> list[Role]:
 def get_role_by_code(db: Session, code: RoleCodeEnum) -> Role | None:
     return db.scalar(select(Role).where(Role.code == code))
 
+
 def get_user_by_email(db: Session, email: str) -> User | None:
     normalized_email = email.strip().lower()
     return db.scalar(select(User).where(User.email == normalized_email))
+
 
 def admin_exists(db: Session) -> bool:
     stmt = (
@@ -78,6 +86,7 @@ def admin_exists(db: Session) -> bool:
         .limit(1)
     )
     return db.scalar(stmt) is not None
+
 
 def create_admin_user(
     db: Session,

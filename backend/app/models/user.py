@@ -70,6 +70,12 @@ class User(BigIntIdMixin, TimestampMixin, Base):
         foreign_keys="ProjectMember.added_by",
     )
 
+    reviewed_project_memberships: Mapped[list["ProjectMember"]] = relationship(
+        "ProjectMember",
+        back_populates="reviewer",
+        foreign_keys="ProjectMember.reviewed_by",
+    )
+
     created_reports: Mapped[list["Report"]] = relationship(
         "Report",
         back_populates="creator",

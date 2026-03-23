@@ -1,10 +1,12 @@
 from __future__ import annotations
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.responses import FileResponse
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_current_active_user, get_db, require_operator_user
+from app.api.deps import require_approved_user, get_db, require_operator_user
+from app.core.access import apply_project_scope, ensure_project_read_access, ensure_project_write_access
 from app.models.project import Project
 from app.models.report import Report
 from app.models.report_type import ReportType
@@ -16,8 +18,10 @@ from app.schemas.upload import (
     ReportUploadRead,
     ReportUploadUpdate,
 )
+from app.utils.storage import resolve_storage_path
 
-router = APIRouter(dependencies=[Depends(get_current_active_user)])
+router = APIRouter(dependencies=[Depends(require_approved_user)])
+
 
 def _get_upload_detail_or_404(db: Session, upload_id: int) -> ReportUpload:
     stmt = (
@@ -34,24 +38,47 @@ def _get_upload_detail_or_404(db: Session, upload_id: int) -> ReportUpload:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found.")
     return upload
 
+
 @router.get("/", response_model=list[ReportUploadRead])
-def list_uploads(db: Session = Depends(get_db)) -> list[ReportUpload]:
-    stmt = select(ReportUpload).order_by(ReportUpload.id)
+def list_uploads(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> list[ReportUpload]:
+    stmt = apply_project_scope(select(ReportUpload), project_column=ReportUpload.project_id, current_user=current_user)
+    stmt = stmt.order_by(ReportUpload.id)
     return list(db.scalars(stmt).all())
 
+
 @router.get("/{upload_id}", response_model=ReportUploadDetailRead)
-def get_upload(upload_id: int, db: Session = Depends(get_db)) -> ReportUpload:
-    return _get_upload_detail_or_404(db, upload_id)
+def get_upload(
+    upload_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> ReportUpload:
+    upload = _get_upload_detail_or_404(db, upload_id)
+    ensure_project_read_access(db, project_id=upload.project_id, current_user=current_user)
+    return upload
+
 
 @router.post("/", response_model=ReportUploadDetailRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_operator_user)])
-def create_upload(payload: ReportUploadCreate, db: Session = Depends(get_db)) -> ReportUpload:
+def create_upload(
+    payload: ReportUploadCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
+) -> ReportUpload:
     report = db.get(Report, payload.report_id)
     if report is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
 
+    if payload.project_id != report.project_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload project_id must match the report project.")
+    if payload.report_type_id != report.report_type_id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Upload report_type_id must match the report type.")
+
     project = db.get(Project, payload.project_id)
     if project is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
+    ensure_project_write_access(db, project_id=payload.project_id, current_user=current_user)
 
     report_type = db.get(ReportType, payload.report_type_id)
     if report_type is None:
@@ -61,14 +88,12 @@ def create_upload(payload: ReportUploadCreate, db: Session = Depends(get_db)) ->
     if uploader is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Uploader user not found.")
 
-    existing_path = db.scalar(
-        select(ReportUpload).where(ReportUpload.storage_path == payload.storage_path)
-    )
+    if payload.uploaded_by != current_user.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can create uploads only on your own behalf.")
+
+    existing_path = db.scalar(select(ReportUpload).where(ReportUpload.storage_path == payload.storage_path))
     if existing_path is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Upload with this storage path already exists.",
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Upload with this storage path already exists.")
 
     existing_version = db.scalar(
         select(ReportUpload).where(
@@ -77,16 +102,10 @@ def create_upload(payload: ReportUploadCreate, db: Session = Depends(get_db)) ->
         )
     )
     if existing_version is not None:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This upload version already exists for the report.",
-        )
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This upload version already exists for the report.")
 
     if payload.is_latest:
-        stmt = select(ReportUpload).where(
-            ReportUpload.report_id == payload.report_id,
-            ReportUpload.is_latest.is_(True),
-        )
+        stmt = select(ReportUpload).where(ReportUpload.report_id == payload.report_id, ReportUpload.is_latest.is_(True))
         for old_upload in db.scalars(stmt).all():
             old_upload.is_latest = False
 
@@ -96,13 +115,17 @@ def create_upload(payload: ReportUploadCreate, db: Session = Depends(get_db)) ->
     db.refresh(upload)
     return _get_upload_detail_or_404(db, upload.id)
 
+
 @router.get("/{upload_id}/download")
-def download_upload(upload_id: int, db: Session = Depends(get_db)) -> FileResponse:
+def download_upload(
+    upload_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> FileResponse:
     upload = db.get(ReportUpload, upload_id)
     if upload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found.")
-
-    from app.utils.storage import resolve_storage_path
+    ensure_project_read_access(db, project_id=upload.project_id, current_user=current_user)
 
     file_path = resolve_storage_path(upload.storage_path)
     if not file_path.exists():
@@ -111,11 +134,18 @@ def download_upload(upload_id: int, db: Session = Depends(get_db)) -> FileRespon
     media_type = upload.content_type or "application/octet-stream"
     return FileResponse(path=file_path, media_type=media_type, filename=upload.original_filename)
 
+
 @router.patch("/{upload_id}", response_model=ReportUploadDetailRead, dependencies=[Depends(require_operator_user)])
-def update_upload(upload_id: int, payload: ReportUploadUpdate, db: Session = Depends(get_db)) -> ReportUpload:
+def update_upload(
+    upload_id: int,
+    payload: ReportUploadUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
+) -> ReportUpload:
     upload = db.get(ReportUpload, upload_id)
     if upload is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Upload not found.")
+    ensure_project_write_access(db, project_id=upload.project_id, current_user=current_user)
 
     data = payload.model_dump(exclude_unset=True)
 

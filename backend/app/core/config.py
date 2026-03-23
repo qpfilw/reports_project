@@ -4,7 +4,6 @@ from pathlib import Path
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=".env",
@@ -25,12 +24,12 @@ class Settings(BaseSettings):
     )
 
     jwt_secret_key: str = Field(
-        default="AHBPsz1CpB39lI4ih1i5lFUzwxLIDtCBMGc8eb9RQcPv5hPTgxSE8uLkUAp92omD",
-        alias="JWT_SECRET_KEY",
+        default="change-me-access-secret",
+        alias="AHBPsz1CpB39lI4ih1i5lFUzwxLIDtCBMGc8eb9RQcPv5hPTgxSE8uLkUAp92omD",
     )
     jwt_refresh_secret_key: str = Field(
-        default="Mcu4v5SArhV8KhXbxY_cHmTt2F8gGi81BYK3EIswuF6UqrCNcJBVfpxwUBjFgxVK",
-        alias="JWT_REFRESH_SECRET_KEY",
+        default="change-me-refresh-secret",
+        alias="Mcu4v5SArhV8KhXbxY_cHmTt2F8gGi81BYK3EIswuF6UqrCNcJBVfpxwUBjFgxVK",
     )
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60
@@ -38,6 +37,13 @@ class Settings(BaseSettings):
 
     storage_root: str = Field(default="storage", alias="STORAGE_ROOT")
     max_upload_size_mb: int = Field(default=25, alias="MAX_UPLOAD_SIZE_MB")
+
+    processing_dispatch_mode: str = Field(default="sync", alias="PROCESSING_DISPATCH_MODE")
+    redis_url: str = Field(default="redis://localhost:6379/0", alias="REDIS_URL")
+    celery_broker_url: str | None = Field(default=None, alias="CELERY_BROKER_URL")
+    celery_result_backend: str | None = Field(default=None, alias="CELERY_RESULT_BACKEND")
+    celery_task_always_eager: bool = Field(default=False, alias="CELERY_TASK_ALWAYS_EAGER")
+    celery_task_eager_propagates: bool = Field(default=False, alias="CELERY_TASK_EAGER_PROPAGATES")
 
     allowed_origins: list[str] = [
         "http://localhost:3000",
@@ -54,14 +60,6 @@ class Settings(BaseSettings):
     def storage_root_path(self) -> Path:
         root = Path(self.storage_root)
         return root if root.is_absolute() else self.project_root / root
-    
-    admin_bootstrap_enabled: bool = Field(default=False, alias="ADMIN_BOOTSTRAP_ENABLED")
-    admin_bootstrap_email: str | None = Field(default=None, alias="ADMIN_BOOTSTRAP_EMAIL")
-    admin_bootstrap_password: str | None = Field(default=None, alias="ADMIN_BOOTSTRAP_PASSWORD")
-    admin_bootstrap_full_name: str | None = Field(default=None, alias="ADMIN_BOOTSTRAP_FULL_NAME")
-    admin_bootstrap_position: str | None = Field(default=None, alias="ADMIN_BOOTSTRAP_POSITION")
-    admin_bootstrap_department: str | None = Field(default=None, alias="ADMIN_BOOTSTRAP_DEPARTMENT")
-
 
 @lru_cache
 def get_settings() -> Settings:

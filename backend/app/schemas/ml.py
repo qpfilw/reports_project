@@ -34,6 +34,7 @@ class MLPipelineResult(BaseSchema):
     column_matches: list[ColumnMatchSuggestion] = Field(default_factory=list)
     anomalies: list[AnomalyItem] = Field(default_factory=list)
     quality_score: float | None = Field(None, ge=0, le=1)
+    mapping_confirmation_required: bool = False
     diagnostics: dict[str, Any] = Field(default_factory=dict)
 
 class ColumnMappingConfirmRequest(BaseSchema):

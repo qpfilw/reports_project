@@ -4,10 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.api.deps import get_current_active_user, get_db, require_operator_user
+from app.api.deps import require_approved_user, get_db, require_operator_user
+from app.core.access import apply_project_scope, ensure_project_read_access, ensure_project_write_access
 from app.models.enums import ProcessingStatusEnum
 from app.models.processing_log import ProcessingLog
 from app.models.processing_task import ProcessingTask
+from app.models.report import Report
 from app.models.task_error import TaskError
 from app.models.user import User
 from app.schemas.processing import (
@@ -22,7 +24,7 @@ from app.schemas.processing import (
 )
 from app.services.processing_service import ProcessingService
 
-router = APIRouter(dependencies=[Depends(get_current_active_user)])
+router = APIRouter(dependencies=[Depends(require_approved_user)])
 
 
 def _get_task_detail_or_404(db: Session, task_id: int) -> ProcessingTask:
@@ -46,14 +48,25 @@ def _get_task_detail_or_404(db: Session, task_id: int) -> ProcessingTask:
 
 
 @router.get("/tasks", response_model=list[ProcessingTaskRead])
-def list_processing_tasks(db: Session = Depends(get_db)) -> list[ProcessingTask]:
-    stmt = select(ProcessingTask).order_by(ProcessingTask.id.desc())
+def list_processing_tasks(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> list[ProcessingTask]:
+    stmt = select(ProcessingTask).join(Report, ProcessingTask.report_id == Report.id)
+    stmt = apply_project_scope(stmt, project_column=Report.project_id, current_user=current_user)
+    stmt = stmt.order_by(ProcessingTask.id.desc())
     return list(db.scalars(stmt).all())
 
 
 @router.get("/tasks/{task_id}", response_model=ProcessingTaskDetailRead)
-def get_processing_task(task_id: int, db: Session = Depends(get_db)) -> ProcessingTask:
-    return _get_task_detail_or_404(db, task_id)
+def get_processing_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> ProcessingTask:
+    task = _get_task_detail_or_404(db, task_id)
+    ensure_project_read_access(db, project_id=task.report.project_id, current_user=current_user)
+    return task
 
 
 @router.post(
@@ -65,8 +78,13 @@ def get_processing_task(task_id: int, db: Session = Depends(get_db)) -> Processi
 def create_processing_task(
     payload: ProcessingTaskLaunchRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(require_operator_user),
 ) -> ProcessingTask:
+    report = db.get(Report, payload.report_id)
+    if report is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Report not found.")
+    ensure_project_write_access(db, project_id=report.project_id, current_user=current_user)
+
     service = ProcessingService(db)
     task = service.launch_processing_task(
         report_id=payload.report_id,
@@ -85,7 +103,14 @@ def create_processing_task(
     response_model=ProcessingTaskDetailRead,
     dependencies=[Depends(require_operator_user)],
 )
-def dispatch_existing_processing_task(task_id: int, db: Session = Depends(get_db)) -> ProcessingTask:
+def dispatch_existing_processing_task(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
+) -> ProcessingTask:
+    task = _get_task_detail_or_404(db, task_id)
+    ensure_project_write_access(db, project_id=task.report.project_id, current_user=current_user)
+
     service = ProcessingService(db)
     service.dispatch_processing_task(task_id=task_id)
     return _get_task_detail_or_404(db, task_id)
@@ -96,10 +121,14 @@ def update_processing_task(
     task_id: int,
     payload: ProcessingTaskUpdate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
 ) -> ProcessingTask:
     task = db.get(ProcessingTask, task_id)
     if task is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Processing task not found.")
+
+    report = db.get(Report, task.report_id)
+    ensure_project_write_access(db, project_id=report.project_id, current_user=current_user)
 
     data = payload.model_dump(exclude_unset=True)
     for field, value in data.items():
@@ -111,10 +140,13 @@ def update_processing_task(
 
 
 @router.get("/tasks/{task_id}/logs", response_model=list[ProcessingLogRead])
-def list_processing_logs(task_id: int, db: Session = Depends(get_db)) -> list[ProcessingLog]:
-    task = db.get(ProcessingTask, task_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Processing task not found.")
+def list_processing_logs(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> list[ProcessingLog]:
+    task = _get_task_detail_or_404(db, task_id)
+    ensure_project_read_access(db, project_id=task.report.project_id, current_user=current_user)
 
     stmt = select(ProcessingLog).where(ProcessingLog.processing_task_id == task_id).order_by(ProcessingLog.id)
     return list(db.scalars(stmt).all())
@@ -130,10 +162,10 @@ def create_processing_log(
     task_id: int,
     payload: ProcessingLogCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
 ) -> ProcessingLog:
-    task = db.get(ProcessingTask, task_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Processing task not found.")
+    task = _get_task_detail_or_404(db, task_id)
+    ensure_project_write_access(db, project_id=task.report.project_id, current_user=current_user)
 
     if payload.processing_task_id != task_id:
         raise HTTPException(
@@ -149,10 +181,13 @@ def create_processing_log(
 
 
 @router.get("/tasks/{task_id}/errors", response_model=list[TaskErrorRead])
-def list_task_errors(task_id: int, db: Session = Depends(get_db)) -> list[TaskError]:
-    task = db.get(ProcessingTask, task_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Processing task not found.")
+def list_task_errors(
+    task_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> list[TaskError]:
+    task = _get_task_detail_or_404(db, task_id)
+    ensure_project_read_access(db, project_id=task.report.project_id, current_user=current_user)
 
     stmt = select(TaskError).where(TaskError.processing_task_id == task_id).order_by(TaskError.id)
     return list(db.scalars(stmt).all())
@@ -168,10 +203,10 @@ def create_task_error(
     task_id: int,
     payload: TaskErrorCreate,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_operator_user),
 ) -> TaskError:
-    task = db.get(ProcessingTask, task_id)
-    if task is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Processing task not found.")
+    task = _get_task_detail_or_404(db, task_id)
+    ensure_project_write_access(db, project_id=task.report.project_id, current_user=current_user)
 
     if payload.processing_task_id != task_id:
         raise HTTPException(
@@ -192,20 +227,19 @@ def create_task_error(
 
 
 @router.get("/summary")
-def processing_summary(db: Session = Depends(get_db)) -> dict[str, int]:
-    total = db.scalar(select(func.count()).select_from(ProcessingTask)) or 0
-    queued = db.scalar(
-        select(func.count()).select_from(ProcessingTask).where(ProcessingTask.status == ProcessingStatusEnum.QUEUED)
-    ) or 0
-    running = db.scalar(
-        select(func.count()).select_from(ProcessingTask).where(ProcessingTask.status == ProcessingStatusEnum.RUNNING)
-    ) or 0
-    success = db.scalar(
-        select(func.count()).select_from(ProcessingTask).where(ProcessingTask.status == ProcessingStatusEnum.SUCCESS)
-    ) or 0
-    failed = db.scalar(
-        select(func.count()).select_from(ProcessingTask).where(ProcessingTask.status == ProcessingStatusEnum.FAILED)
-    ) or 0
+def processing_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_approved_user),
+) -> dict[str, int]:
+    base_stmt = select(ProcessingTask).join(Report, ProcessingTask.report_id == Report.id)
+    base_stmt = apply_project_scope(base_stmt, project_column=Report.project_id, current_user=current_user)
+    subquery = base_stmt.subquery()
+
+    total = db.scalar(select(func.count()).select_from(subquery)) or 0
+    queued = db.scalar(select(func.count()).select_from(subquery).where(subquery.c.status == ProcessingStatusEnum.QUEUED.value)) or 0
+    running = db.scalar(select(func.count()).select_from(subquery).where(subquery.c.status == ProcessingStatusEnum.RUNNING.value)) or 0
+    success = db.scalar(select(func.count()).select_from(subquery).where(subquery.c.status == ProcessingStatusEnum.SUCCESS.value)) or 0
+    failed = db.scalar(select(func.count()).select_from(subquery).where(subquery.c.status == ProcessingStatusEnum.FAILED.value)) or 0
 
     return {
         "total": total,

@@ -4,6 +4,7 @@ from fastapi import Depends, HTTPException, Security, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
+from app.core.access import get_role_code, is_pending
 from app.core.security import TokenDecodeError, decode_access_token
 from app.db.session import get_db as _get_db
 from app.models.user import User
@@ -63,27 +64,32 @@ def get_current_active_user(current_user: User = Depends(get_current_user)) -> U
 
     return current_user
 
-def _get_role_code(user: User) -> str:
-    return user.role.code.value if hasattr(user.role.code, "value") else str(user.role.code)
+def require_approved_user(current_user: User = Depends(get_current_active_user)) -> User:
+    if is_pending(current_user):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your account is pending approval by an administrator.",
+        )
+    return current_user
 
 def require_admin_user(current_user: User = Depends(get_current_active_user)) -> User:
-    if _get_role_code(current_user) != "admin":
+    if get_role_code(current_user) != "admin":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Admin access required.",
         )
     return current_user
 
-def require_manager_user(current_user: User = Depends(get_current_active_user)) -> User:
-    if _get_role_code(current_user) not in {"admin", "manager"}:
+def require_manager_user(current_user: User = Depends(require_approved_user)) -> User:
+    if get_role_code(current_user) not in {"admin", "manager"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Manager access required.",
         )
     return current_user
 
-def require_operator_user(current_user: User = Depends(get_current_active_user)) -> User:
-    if _get_role_code(current_user) not in {"admin", "manager", "operator"}:
+def require_operator_user(current_user: User = Depends(require_approved_user)) -> User:
+    if get_role_code(current_user) not in {"admin", "manager", "operator"}:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Operator access required.",

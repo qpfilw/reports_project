@@ -2,11 +2,11 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
-from app.api.deps import get_db, get_current_active_user, require_manager_user
+from app.api.deps import get_db, require_approved_user, require_manager_user
 from app.models.report_type import ReportType
 from app.schemas.report import ReportTypeCreate, ReportTypeRead, ReportTypeUpdate
 
-router = APIRouter(dependencies=[Depends(get_current_active_user)])
+router = APIRouter(dependencies=[Depends(require_approved_user)])
 
 @router.get("/", response_model=list[ReportTypeRead])
 def list_report_types(db: Session = Depends(get_db)) -> list[ReportType]:
