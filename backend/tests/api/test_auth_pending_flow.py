@@ -20,7 +20,8 @@ def test_pending_user_has_limited_access(client, admin_credentials):
 
     projects_response = client.get("/api/v1/projects/", headers=pending_headers)
     assert projects_response.status_code == 403
-    assert "pending approval" in projects_response.json()["detail"].lower()
+    assert "pending approval" in projects_response.json()["detail"]["message"].lower()
+    assert projects_response.json()["detail"]["code"] == "USER_PENDING_APPROVAL"
 
     password_response = client.post(
         "/api/v1/auth/change-password",

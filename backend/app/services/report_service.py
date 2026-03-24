@@ -1,12 +1,9 @@
 from __future__ import annotations
-
 from datetime import datetime, timezone
-
-from fastapi import HTTPException, status
-from sqlalchemy.orm import Session
-
+from app.core.exceptions import InvalidWorkflowTransitionError, raise_http
 from app.models.enums import ReportStatusEnum
 from app.models.report import Report
+from sqlalchemy.orm import Session
 
 
 class ReportService:
@@ -40,7 +37,12 @@ class ReportService:
     def mark_processing(self, report: Report) -> Report:
         self._ensure_status(
             report,
-            {ReportStatusEnum.DRAFT, ReportStatusEnum.UPLOADED, ReportStatusEnum.FAILED, ReportStatusEnum.REWORK},
+            {
+                ReportStatusEnum.DRAFT,
+                ReportStatusEnum.UPLOADED,
+                ReportStatusEnum.FAILED,
+                ReportStatusEnum.REWORK,
+            },
             "start processing",
         )
         report.status = ReportStatusEnum.PROCESSING
@@ -48,11 +50,13 @@ class ReportService:
         return report
 
     def mark_processed(self, report: Report) -> Report:
+        self._ensure_status(report, {ReportStatusEnum.PROCESSING}, "mark as processed")
         report.status = ReportStatusEnum.PROCESSED
         self.db.flush()
         return report
 
     def mark_failed(self, report: Report, *, error_summary: str | None = None) -> Report:
+        self._ensure_status(report, {ReportStatusEnum.PROCESSING}, "mark as failed")
         report.status = ReportStatusEnum.FAILED
         if error_summary:
             report.last_comment = error_summary
@@ -122,7 +126,11 @@ class ReportService:
     def archive(self, report: Report, *, comment: str | None = None) -> Report:
         self._ensure_status(
             report,
-            {ReportStatusEnum.APPROVED, ReportStatusEnum.REJECTED, ReportStatusEnum.FAILED},
+            {
+                ReportStatusEnum.APPROVED,
+                ReportStatusEnum.REJECTED,
+                ReportStatusEnum.FAILED,
+            },
             "archive",
         )
         report.status = ReportStatusEnum.ARCHIVED
@@ -142,21 +150,34 @@ class ReportService:
         approver_id: int | None = None,
     ) -> Report:
         target_status = ReportStatusEnum(target_status)
+
         if target_status == ReportStatusEnum.ON_REVIEW:
             return self.submit_for_review(report, comment=comment, current_assignee_id=current_assignee_id)
+
         if target_status == ReportStatusEnum.ON_APPROVAL:
             return self.submit_for_approval(report, comment=comment, approver_id=approver_id)
+
         if target_status == ReportStatusEnum.APPROVED:
             return self.approve(report, comment=comment)
+
         if target_status == ReportStatusEnum.REJECTED:
             return self.reject(report, comment=comment)
+
         if target_status == ReportStatusEnum.REWORK:
             return self.send_to_rework(report, comment=comment)
+
         if target_status == ReportStatusEnum.ARCHIVED:
             return self.archive(report, comment=comment)
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=f"Manual transition to status '{self._value(target_status)}' is not allowed.",
+
+        raise_http(
+            InvalidWorkflowTransitionError(
+                detail=f"Manual transition to status '{self._value(target_status)}' is not allowed.",
+                code="REPORT_MANUAL_TRANSITION_NOT_ALLOWED",
+                extra={
+                    "report_id": report.id,
+                    "target_status": self._value(target_status),
+                },
+            )
         )
 
     @staticmethod
@@ -167,10 +188,18 @@ class ReportService:
         current = ReportStatusEnum(report.status)
         if current not in allowed:
             allowed_text = ", ".join(sorted(item.value for item in allowed))
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"Cannot {action} report from status '{current.value}'. "
-                    f"Allowed statuses: {allowed_text}."
-                ),
+            raise_http(
+                InvalidWorkflowTransitionError(
+                    detail=(
+                        f"Cannot {action} report from status '{current.value}'. "
+                        f"Allowed statuses: {allowed_text}."
+                    ),
+                    code="REPORT_INVALID_STATUS_TRANSITION",
+                    extra={
+                        "report_id": report.id,
+                        "current_status": current.value,
+                        "allowed_statuses": sorted(item.value for item in allowed),
+                        "action": action,
+                    },
+                )
             )

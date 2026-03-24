@@ -1,10 +1,7 @@
 from __future__ import annotations
-
 from datetime import datetime, timezone
-
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
-
 from app.core.config import get_settings
 from app.models.enums import ProcessingLogLevelEnum, ProcessingStatusEnum
 from app.models.normalized_dataset import NormalizedDataset
@@ -16,6 +13,7 @@ from app.models.task_error import TaskError
 from app.models.user import User
 from app.services.ml_service import MLService
 from app.services.normalization_service import NormalizationService
+from app.services.notification_service import NotificationService
 from app.services.report_service import ReportService
 from app.utils.storage import resolve_storage_path
 
@@ -28,6 +26,7 @@ class ProcessingService:
         self.normalization_service = NormalizationService()
         self.report_service = ReportService(db)
         self.ml_service = MLService(db)
+        self.notification_service = NotificationService(db)
 
     def launch_processing_task(
         self,
@@ -244,6 +243,7 @@ class ProcessingService:
             },
         )
         self.report_service.mark_processed(task.report)
+        self._try_notify_task_completed(task)
         self.db.flush()
 
     def _mark_task_failed(
@@ -257,12 +257,14 @@ class ProcessingService:
         task.progress = 100
         task.finished_at = datetime.now(timezone.utc)
         task.error_summary = error_summary
+
         if normalization_result is not None:
             task.quality_score = float(normalization_result["quality_score"])
             task.warning_count = len(list(normalization_result["warnings"]))
             task.error_count = len(list(normalization_result["errors"]))
         else:
             task.error_count = max(task.error_count or 0, 1)
+
         self.append_log(
             task=task,
             level=ProcessingLogLevelEnum.ERROR,
@@ -274,7 +276,9 @@ class ProcessingService:
                 "errors_count": task.error_count,
             },
         )
+
         self.report_service.mark_failed(task.report, error_summary=error_summary)
+        self._try_notify_task_failed(task)
         self.db.flush()
 
     def _store_normalized_dataset(self, *, task: ProcessingTask, normalization_result: dict[str, object]) -> None:
@@ -374,6 +378,31 @@ class ProcessingService:
         if dataset is not None:
             self.db.delete(dataset)
             self.db.flush()
+
+    def _try_notify_task_completed(self, task: ProcessingTask) -> None:
+        try:
+            self.notification_service.notify_task_completed(task)
+        except Exception as exc:
+            self.append_log(
+                task=task,
+                level=ProcessingLogLevelEnum.WARNING,
+                stage="notification",
+                message="Не удалось создать уведомление об успешной обработке.",
+                context_json={"error": str(exc)},
+            )
+
+
+    def _try_notify_task_failed(self, task: ProcessingTask) -> None:
+        try:
+            self.notification_service.notify_task_failed(task)
+        except Exception as exc:
+            self.append_log(
+                task=task,
+                level=ProcessingLogLevelEnum.WARNING,
+                stage="notification",
+                message="Не удалось создать уведомление об ошибке обработки.",
+                context_json={"error": str(exc)},
+            )
 
     @staticmethod
     def _ensure_task_can_be_dispatched(task: ProcessingTask) -> None:
