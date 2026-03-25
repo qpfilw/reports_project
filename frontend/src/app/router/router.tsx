@@ -6,6 +6,7 @@ import LoginPage from '../../pages/auth/LoginPage';
 import RegisterPage from '../../pages/auth/RegisterPage';
 import HomePage from '../../pages/dashboard/HomePage';
 import ReportsPage from '../../pages/reports/ReportsPage';
+import ReportApprovalsPage from '../../pages/reports/ReportApprovalsPage';
 import AnalyticsPage from '../../pages/analytics/AnalyticsPage';
 import AdminPage from '../../pages/admin/AdminPage';
 import ProfilePage from '../../pages/profile/ProfilePage';
@@ -13,8 +14,12 @@ import CreateReportPage from '../../pages/reports/CreateReportPage';
 import UploadReportPage from '../../pages/reports/UploadReportPage';
 import TaskDetailsPage from '../../pages/tasks/TaskDetailsPage';
 import ReportResultPage from '../../pages/reports/ReportResultPage';
+import EditReportPage from '../../pages/reports/EditReportPage';
 import AdminTemplatesPage from '../../pages/admin/AdminTemplatesPage';
 import NotificationsPage from '../../pages/notifications/NotificationsPage';
+import ProjectsPage from '../../pages/projects/ProjectsPage';
+import ProjectDetailsPage from '../../pages/projects/ProjectDetailsPage';
+import SettingsPage from '../../pages/settings/SettingsPage';
 
 export const router = createBrowserRouter([
   {
@@ -42,8 +47,20 @@ export const router = createBrowserRouter([
         element: <ReportsPage />,
       },
       {
+        path: 'reports/approval',
+        element: (
+          <RoleGuard roles={['admin', 'manager']}>
+            <ReportApprovalsPage />
+          </RoleGuard>
+        ),
+      },
+      {
         path: 'reports/create',
         element: <CreateReportPage />,
+      },
+      {
+        path: 'reports/:reportId/edit',
+        element: <EditReportPage />,
       },
       {
         path: 'reports/:reportId/upload',
@@ -76,9 +93,9 @@ export const router = createBrowserRouter([
       {
         path: 'admin/templates',
         element: (
-            <RoleGuard roles={['admin']}>
+          <RoleGuard roles={['admin']}>
             <AdminTemplatesPage />
-            </RoleGuard>
+          </RoleGuard>
         ),
       },
       {
@@ -88,6 +105,18 @@ export const router = createBrowserRouter([
       {
         path: 'notifications',
         element: <NotificationsPage />,
+      },
+      {
+        path: 'projects',
+        element: <ProjectsPage />,
+      },
+      {
+        path: 'projects/:projectId',
+        element: <ProjectDetailsPage />,
+      },
+      {
+        path: 'settings',
+        element: <SettingsPage />,
       },
     ],
   },

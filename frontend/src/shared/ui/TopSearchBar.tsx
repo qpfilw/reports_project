@@ -1,5 +1,6 @@
 import { Form } from 'react-bootstrap';
 import { NotificationsBell } from './NotificationsBell';
+import { ProjectSwitcher } from './ProjectSwitcher';
 
 export function TopSearchBar() {
   return (
@@ -11,7 +12,10 @@ export function TopSearchBar() {
           className="top-search-input"
         />
 
-        <NotificationsBell />
+        <div className="top-bar-actions">
+          <ProjectSwitcher />
+          <NotificationsBell />
+        </div>
       </div>
     </div>
   );

@@ -239,7 +239,7 @@ def update_report_status(
 
     _validate_related_users(
         db,
-        project_id=payload.project_id,
+        project_id=report.project_id,
         current_assignee_id=payload.current_assignee_id,
         approver_id=payload.approver_id,
     )

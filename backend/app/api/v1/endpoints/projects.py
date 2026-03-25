@@ -15,9 +15,10 @@ from app.core.access import (
     get_project_or_404,
     is_admin,
 )
-from app.models.enums import ProjectAccessStatusEnum, ProjectMemberRoleEnum
+from app.models.enums import ProjectAccessStatusEnum, ProjectMemberRoleEnum, RoleCodeEnum
 from app.models.project import Project
 from app.models.project_member import ProjectMember
+from app.models.role import Role
 from app.models.user import User
 from app.schemas.common import MessageSchema
 from app.schemas.project import (
@@ -31,9 +32,9 @@ from app.schemas.project import (
     ProjectRead,
     ProjectUpdate,
 )
+from app.schemas.user import UserShortRead
 
 router = APIRouter(dependencies=[Depends(require_approved_user)])
-
 
 def _get_project_detail_or_404(db: Session, project_id: int) -> Project:
     stmt = (
@@ -217,6 +218,32 @@ def list_project_members(
             (ProjectMember.access_status == ProjectAccessStatusEnum.APPROVED)
             | (ProjectMember.user_id == current_user.id)
         )
+    return list(db.scalars(stmt).all())
+
+@router.get("/{project_id}/available-users", response_model=list[UserShortRead], dependencies=[Depends(require_manager_user)],)
+def list_available_project_users(
+    project_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager_user),
+) -> list[User]:
+    ensure_project_owner_or_admin(db, project_id=project_id, current_user=current_user)
+
+    existing_member_user_ids = select(ProjectMember.user_id).where(
+        ProjectMember.project_id == project_id
+    )
+
+    stmt = (
+        select(User)
+        .join(Role, Role.id == User.role_id)
+        .where(
+            User.is_active.is_(True),
+            User.is_blocked.is_(False),
+            Role.code != RoleCodeEnum.PENDING,
+            ~User.id.in_(existing_member_user_ids),
+        )
+        .order_by(User.full_name, User.id)
+    )
+
     return list(db.scalars(stmt).all())
 
 

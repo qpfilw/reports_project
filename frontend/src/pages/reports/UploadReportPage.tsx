@@ -13,7 +13,7 @@ import type { ReportUpload } from '../../shared/types/upload';
 import { ContentCard } from '../../shared/ui/ContentCard';
 
 function formatDate(value?: string | null) {
-  if (!value) return '—';
+  if (!value) return '-';
 
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
@@ -246,7 +246,7 @@ export default function UploadReportPage() {
           <div className="form-meta-card">
             <div className="form-meta-label">Период</div>
             <div className="form-meta-value">
-              {report.report_period_start} — {report.report_period_end}
+              {report.report_period_start} - {report.report_period_end}
             </div>
           </div>
 
@@ -305,11 +305,11 @@ export default function UploadReportPage() {
                   value={priority}
                   onChange={(event) => setPriority(event.target.value)}
                 >
-                  <option value="1">1 — минимальный</option>
+                  <option value="1">1 - минимальный</option>
                   <option value="3">3</option>
-                  <option value="5">5 — стандартный</option>
+                  <option value="5">5 - стандартный</option>
                   <option value="7">7</option>
-                  <option value="10">10 — максимальный</option>
+                  <option value="10">10 - максимальный</option>
                 </Form.Select>
               </Form.Group>
 
@@ -345,7 +345,7 @@ export default function UploadReportPage() {
               <div className="form-meta-card">
                 <div className="form-meta-label">Последняя загрузка</div>
                 <div className="form-meta-value">
-                  {latestUpload ? formatDate(latestUpload.uploaded_at) : '—'}
+                  {latestUpload ? formatDate(latestUpload.uploaded_at) : '-'}
                 </div>
               </div>
 
@@ -356,7 +356,7 @@ export default function UploadReportPage() {
                     ? formatBytes(displayedUpload.file_size)
                     : file
                       ? formatBytes(file.size)
-                      : '—'}
+                      : '-'}
                 </div>
               </div>
 

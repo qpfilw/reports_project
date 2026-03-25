@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
-
+from app.schemas.common import MessageSchema
 from app.api.deps import require_approved_user, get_db, require_manager_user
 from app.core.access import apply_project_scope, ensure_project_read_access, ensure_project_write_access
 from app.models.dashboard import Dashboard
@@ -168,6 +168,26 @@ def update_dashboard(
     db.commit()
     db.refresh(dashboard)
     return _get_dashboard_detail_or_404(db, dashboard.id)
+
+@router.delete(
+    "/dashboards/{dashboard_id}",
+    response_model=MessageSchema,
+    dependencies=[Depends(require_manager_user)],
+)
+def delete_dashboard(
+    dashboard_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager_user),
+) -> MessageSchema:
+    dashboard = db.get(Dashboard, dashboard_id)
+    if dashboard is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dashboard not found.")
+
+    ensure_project_write_access(db, project_id=dashboard.project_id, current_user=current_user)
+
+    db.delete(dashboard)
+    db.commit()
+    return MessageSchema(message="Dashboard deleted successfully.")
 
 
 @router.get("/overview", response_model=AnalyticsOverview, dependencies=[Depends(require_manager_user)])

@@ -12,7 +12,7 @@ import type {
 import { ContentCard } from '../../shared/ui/ContentCard';
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '—';
+  if (!value) return '-';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
 }
@@ -285,13 +285,13 @@ export default function TaskDetailsPage() {
               <div className="task-ml-list">
                 <div>
                   <strong>Выбранный шаблон:</strong>{' '}
-                  {pipelineResult?.selected_template?.name ?? '—'}
+                  {pipelineResult?.selected_template?.name ?? '-'}
                 </div>
                 <div>
                   <strong>Качество:</strong>{' '}
                   {pipelineResult?.quality_score != null
                     ? `${Math.round(pipelineResult.quality_score * 100)}%`
-                    : '—'}
+                    : '-'}
                 </div>
                 <div>
                   <strong>Подтверждение маппинга:</strong>{' '}
@@ -329,9 +329,9 @@ export default function TaskDetailsPage() {
                     <tr key={item.id}>
                       <td>{item.error_code}</td>
                       <td>{item.error_type}</td>
-                      <td>{item.field_path ?? '—'}</td>
-                      <td>{item.row_number ?? '—'}</td>
-                      <td>{item.details ?? item.source_value ?? '—'}</td>
+                      <td>{item.field_path ?? '-'}</td>
+                      <td>{item.row_number ?? '-'}</td>
+                      <td>{item.details ?? item.source_value ?? '-'}</td>
                     </tr>
                   ))
                 )}

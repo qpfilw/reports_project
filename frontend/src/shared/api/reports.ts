@@ -1,5 +1,11 @@
 import { apiClient } from './client';
-import type { Report } from '../types/report';
+import type {
+  Report,
+  ReportDetail,
+  ReportStatusUpdatePayload,
+  ReportWorkflowPayload,
+  UpdateReportPayload,
+} from '../types/report';
 import type { ReportUploadDetail } from '../types/upload';
 
 export interface CreateReportPayload {
@@ -22,12 +28,30 @@ export const reportsApi = {
   },
 
   getById: async (reportId: number) => {
-    const response = await apiClient.get<Report>(`/reports/${reportId}`);
+    const response = await apiClient.get<ReportDetail>(`/reports/${reportId}`);
     return response.data;
   },
 
   create: async (payload: CreateReportPayload) => {
-    const response = await apiClient.post<Report>('/reports', payload);
+    const response = await apiClient.post<ReportDetail>('/reports', payload);
+    return response.data;
+  },
+
+  update: async (reportId: number, payload: UpdateReportPayload) => {
+    const response = await apiClient.patch<ReportDetail>(`/reports/${reportId}`, payload);
+    return response.data;
+  },
+
+  updateStatus: async (reportId: number, payload: ReportStatusUpdatePayload) => {
+    const response = await apiClient.patch<ReportDetail>(`/reports/${reportId}/status`, payload);
+    return response.data;
+  },
+
+  archive: async (reportId: number, last_comment?: string | null) => {
+    const response = await apiClient.patch<ReportDetail>(`/reports/${reportId}/status`, {
+      status: 'archived',
+      last_comment: last_comment ?? null,
+    });
     return response.data;
   },
 
@@ -49,6 +73,31 @@ export const reportsApi = {
       },
     );
 
+    return response.data;
+  },
+
+  submitForReview: async (reportId: number, payload: ReportWorkflowPayload) => {
+    const response = await apiClient.post<ReportDetail>(`/reports/${reportId}/submit-review`, payload);
+    return response.data;
+  },
+
+  submitForApproval: async (reportId: number, payload: ReportWorkflowPayload) => {
+    const response = await apiClient.post<ReportDetail>(`/reports/${reportId}/submit-approval`, payload);
+    return response.data;
+  },
+
+  approve: async (reportId: number, payload: ReportWorkflowPayload) => {
+    const response = await apiClient.post<ReportDetail>(`/reports/${reportId}/approve`, payload);
+    return response.data;
+  },
+
+  reject: async (reportId: number, payload: ReportWorkflowPayload) => {
+    const response = await apiClient.post<ReportDetail>(`/reports/${reportId}/reject`, payload);
+    return response.data;
+  },
+
+  sendToRework: async (reportId: number, payload: ReportWorkflowPayload) => {
+    const response = await apiClient.post<ReportDetail>(`/reports/${reportId}/rework`, payload);
     return response.data;
   },
 };

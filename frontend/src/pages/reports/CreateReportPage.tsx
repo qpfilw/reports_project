@@ -2,11 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { Alert, Button, Col, Form, Row, Spinner } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthProvider';
+import { useProjectContext } from '../../features/projects/ProjectContext';
 import { mlApi } from '../../shared/api/ml';
-import { projectsApi } from '../../shared/api/projects';
 import { reportTypesApi } from '../../shared/api/reportTypes';
 import { reportsApi } from '../../shared/api/reports';
-import type { Project } from '../../shared/types/project';
 import type { ReportType } from '../../shared/types/report-type';
 import type { MlTemplate } from '../../shared/types/template';
 import { ContentCard } from '../../shared/ui/ContentCard';
@@ -33,10 +32,10 @@ const initialForm: CreateReportFormState = {
 
 export default function CreateReportPage() {
   const { user } = useAuth();
+  const { activeProjectId, activeProject, projects } = useProjectContext();
   const navigate = useNavigate();
 
   const [form, setForm] = useState<CreateReportFormState>(initialForm);
-  const [projects, setProjects] = useState<Project[]>([]);
   const [reportTypes, setReportTypes] = useState<ReportType[]>([]);
   const [templates, setTemplates] = useState<MlTemplate[]>([]);
 
@@ -48,17 +47,21 @@ export default function CreateReportPage() {
   const [successMessage, setSuccessMessage] = useState('');
 
   useEffect(() => {
+    if (activeProjectId != null) {
+      setForm((prev) => ({
+        ...prev,
+        project_id: String(activeProjectId),
+      }));
+    }
+  }, [activeProjectId]);
+
+  useEffect(() => {
     (async () => {
       try {
         setIsBootLoading(true);
         setError('');
 
-        const [projectsData, reportTypesData] = await Promise.all([
-          projectsApi.list(),
-          reportTypesApi.list(),
-        ]);
-
-        setProjects(projectsData.filter((item) => !item.is_archived));
+        const reportTypesData = await reportTypesApi.list();
         setReportTypes(reportTypesData.filter((item) => item.is_active));
       } catch {
         setError('Не удалось загрузить данные для создания отчета.');
@@ -108,7 +111,7 @@ export default function CreateReportPage() {
     }
 
     if (!form.project_id) {
-      return 'Выбери проект.';
+      return 'Сначала выбери проект.';
     }
 
     if (!form.report_type_id) {
@@ -155,10 +158,10 @@ export default function CreateReportPage() {
         ml_template_id: form.ml_template_id ? Number(form.ml_template_id) : null,
       });
 
-    setSuccessMessage(`Отчет №${createdReport.id} успешно создан.`);
-    setTimeout(() => {
-    navigate(`/reports/${createdReport.id}/upload`);
-    }, 700);
+      setSuccessMessage(`Отчет №${createdReport.id} успешно создан.`);
+      setTimeout(() => {
+        navigate(`/reports/${createdReport.id}/upload`);
+      }, 700);
     } catch {
       setError('Не удалось создать отчет. Проверь введенные данные и права доступа.');
     } finally {
@@ -194,6 +197,12 @@ export default function CreateReportPage() {
         {error ? <Alert variant="danger">{error}</Alert> : null}
         {successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
 
+        {activeProjectId == null ? (
+          <Alert variant="warning">
+            Сначала выбери проект. Создание отчета выполняется в контексте активного проекта.
+          </Alert>
+        ) : null}
+
         <Form onSubmit={handleSubmit}>
           <Row className="g-3">
             <Col md={6}>
@@ -203,13 +212,16 @@ export default function CreateReportPage() {
                   value={form.project_id}
                   onChange={(e) => updateField('project_id', e.target.value)}
                   className="soft-input"
+                  disabled={activeProjectId != null}
                 >
                   <option value="">Выбрать проект</option>
-                  {projects.map((project) => (
-                    <option key={project.id} value={project.id}>
-                      {project.name} ({project.code})
-                    </option>
-                  ))}
+                  {projects
+                    .filter((item) => !item.is_archived)
+                    .map((project) => (
+                      <option key={project.id} value={project.id}>
+                        {project.name} ({project.code})
+                      </option>
+                    ))}
                 </Form.Select>
               </Form.Group>
             </Col>
@@ -313,20 +325,20 @@ export default function CreateReportPage() {
             <div className="form-meta-card">
               <div className="form-meta-label">Выбранный проект</div>
               <div className="form-meta-value">
-                {selectedProject ? `${selectedProject.name} (${selectedProject.code})` : '—'}
+                {selectedProject ? `${selectedProject.name} (${selectedProject.code})` : '-'}
               </div>
             </div>
 
             <div className="form-meta-card">
               <div className="form-meta-label">Тип отчетности</div>
               <div className="form-meta-value">
-                {selectedReportType ? selectedReportType.name : '—'}
+                {selectedReportType ? selectedReportType.name : '-'}
               </div>
             </div>
 
             <div className="form-meta-card">
               <div className="form-meta-label">Создатель</div>
-              <div className="form-meta-value">{user?.full_name ?? '—'}</div>
+              <div className="form-meta-value">{user?.full_name ?? '-'}</div>
             </div>
           </div>
 

@@ -66,7 +66,7 @@ function buildFormState(template?: MlTemplateDetail | null): TemplateFormState {
 }
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '—';
+  if (!value) return '-';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
 }
@@ -374,7 +374,7 @@ export default function AdminTemplatesPage() {
                           <td>{template.code}</td>
                           <td>{template.name}</td>
                           <td>{getTemplateTypeLabel(template.template_type)}</td>
-                          <td>{template.target_report_type_id ? reportTypeMap.get(template.target_report_type_id)?.name ?? `#${template.target_report_type_id}` : '—'}</td>
+                          <td>{template.target_report_type_id ? reportTypeMap.get(template.target_report_type_id)?.name ?? `#${template.target_report_type_id}` : '-'}</td>
                           <td>{template.version}</td>
                           <td>
                             <span className={template.is_active ? 'status-badge status-badge-success' : 'status-badge status-badge-muted'}>
@@ -653,13 +653,13 @@ export default function AdminTemplatesPage() {
                 <div className="form-meta-value">
                   {selectedTemplate.target_report_type_id
                     ? reportTypeMap.get(selectedTemplate.target_report_type_id)?.name ?? `#${selectedTemplate.target_report_type_id}`
-                    : '—'}
+                    : '-'}
                 </div>
               </div>
 
               <div className="form-meta-card">
                 <div className="form-meta-label">Создатель</div>
-                <div className="form-meta-value">{selectedTemplate.creator?.full_name ?? '—'}</div>
+                <div className="form-meta-value">{selectedTemplate.creator?.full_name ?? '-'}</div>
               </div>
 
               <div className="form-meta-card">
@@ -678,7 +678,7 @@ export default function AdminTemplatesPage() {
 
               <div className="form-meta-card template-detail-wide">
                 <div className="form-meta-label">Описание</div>
-                <div className="form-meta-value">{selectedTemplate.description ?? '—'}</div>
+                <div className="form-meta-value">{selectedTemplate.description ?? '-'}</div>
               </div>
 
               <div className="form-meta-card template-detail-wide">
@@ -701,8 +701,8 @@ export default function AdminTemplatesPage() {
                   <div><strong>ID:</strong> {selectedTemplate.id}</div>
                   <div><strong>created_at:</strong> {formatDateTime(selectedTemplate.created_at)}</div>
                   <div><strong>updated_at:</strong> {formatDateTime(selectedTemplate.updated_at)}</div>
-                  <div><strong>model_path:</strong> {selectedTemplate.model_path ?? '—'}</div>
-                  <div><strong>department:</strong> {selectedTemplate.department ?? '—'}</div>
+                  <div><strong>model_path:</strong> {selectedTemplate.model_path ?? '-'}</div>
+                  <div><strong>department:</strong> {selectedTemplate.department ?? '-'}</div>
                 </div>
               </div>
             </div>

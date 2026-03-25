@@ -17,7 +17,7 @@ import { useNavigate } from 'react-router-dom';
 const APPROVE_ROLE_OPTIONS: RoleCode[] = ['viewer', 'operator', 'manager'];
 
 function formatDateTime(value?: string | null) {
-  if (!value) return '—';
+  if (!value) return '-';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
 }
@@ -204,8 +204,8 @@ export default function AdminPage() {
                         <td>{user.id}</td>
                         <td>{user.full_name}</td>
                         <td>{user.email}</td>
-                        <td>{user.department ?? '—'}</td>
-                        <td>{user.position ?? '—'}</td>
+                        <td>{user.department ?? '-'}</td>
+                        <td>{user.position ?? '-'}</td>
                         <td>
                           <Form.Select
                             className="admin-inline-select"
@@ -318,7 +318,7 @@ export default function AdminPage() {
                           <td>{user.email}</td>
                           <td>
                             <div className="admin-role-cell">
-                              <span>{role?.name ?? '—'}</span>
+                              <span>{role?.name ?? '-'}</span>
                               <Form.Select
                                 className="admin-inline-select"
                                 value={selectedRole}

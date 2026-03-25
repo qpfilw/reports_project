@@ -54,12 +54,12 @@ export default function ProfilePage() {
 
         <div className="profile-field">
           <div className="profile-label">Должность</div>
-          <div className="profile-value">{user.position ?? '—'}</div>
+          <div className="profile-value">{user.position ?? '-'}</div>
         </div>
 
         <div className="profile-field">
           <div className="profile-label">Отдел</div>
-          <div className="profile-value">{user.department ?? '—'}</div>
+          <div className="profile-value">{user.department ?? '-'}</div>
         </div>
 
         <div className="profile-field">

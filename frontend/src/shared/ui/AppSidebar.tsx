@@ -4,8 +4,10 @@ import { useAuth } from '../../features/auth/AuthProvider';
 
 const navItems = [
   { label: 'Главная', to: '/' },
+  { label: 'Проекты', to: '/projects' },
   { label: 'Отчетность', to: '/reports' },
   { label: 'Аналитика', to: '/analytics' },
+  { label: 'Уведомления', to: '/notifications' },
   { label: 'Администратор', to: '/admin', onlyAdmin: true },
 ];
 
@@ -71,28 +73,37 @@ export function AppSidebar() {
         </nav>
       </div>
 
-      <div className="sidebar-bottom">
+    <div className="sidebar-bottom">
+      <div className="sidebar-actions">
+        <NavLink
+          to="/settings"
+          className={({ isActive }) =>
+            `sidebar-link ${isActive ? 'sidebar-link-active' : ''}`
+          }
+        >
+          Настройки
+        </NavLink>
+
         <Button className="sidebar-link sidebar-link-ghost" onClick={handleLogout}>
           Выйти
         </Button>
-
-        <NavLink
-          to="/profile"
-          title={user?.full_name ?? 'Профиль пользователя'}
-          className={({ isActive }) =>
-            `user-block-link ${isActive ? 'user-block-active' : ''}`
-          }
-        >
-          <div className="user-badge">{getInitials(user?.full_name)}</div>
-
-          <div className="user-info">
-            <div className="user-name">
-              {getSidebarDisplayName(user?.full_name)}
-            </div>
-            <div className="user-role">{user?.role.name ?? 'Роль не указана'}</div>
-          </div>
-        </NavLink>
       </div>
+
+      <NavLink
+        to="/profile"
+        title={user?.full_name ?? 'Профиль пользователя'}
+        className={({ isActive }) =>
+          `user-block-link ${isActive ? 'user-block-active' : ''}`
+        }
+      >
+        <div className="user-badge">{getInitials(user?.full_name)}</div>
+
+        <div className="user-info">
+          <div className="user-name">{getSidebarDisplayName(user?.full_name)}</div>
+          <div className="user-role">{user?.role.name ?? 'Роль не указана'}</div>
+        </div>
+      </NavLink>
+    </div>
     </aside>
   );
 }
