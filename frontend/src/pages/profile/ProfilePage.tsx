@@ -20,6 +20,7 @@ interface PasswordFormState {
 export default function ProfilePage() {
   const { user, reloadMe } = useAuth();
 
+  const [isSettingsMode, setIsSettingsMode] = useState(false);
   const [profileForm, setProfileForm] = useState<ProfileFormState>({
     email: '',
     full_name: '',
@@ -134,159 +135,206 @@ export default function ProfilePage() {
   };
 
   return (
-    <div className="page-stack">
-      <ContentCard
-        header={
-          <div className="section-header">
+    <ContentCard
+      header={
+        <div className="toolbar-row">
+          <div className="toolbar-left">
             <h2 className="section-title mb-0">Профиль пользователя</h2>
           </div>
-        }
-      >
-        <div className="form-shell">
-          {profileError ? <Alert variant="danger">{profileError}</Alert> : null}
-          {profileSuccess ? <Alert variant="success">{profileSuccess}</Alert> : null}
 
-          <Form onSubmit={handleProfileSubmit}>
-            <Row className="g-3">
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>Email</Form.Label>
-                  <Form.Control
-                    className="soft-input"
-                    value={profileForm.email}
-                    onChange={(event) =>
-                      setProfileForm((prev) => ({ ...prev, email: event.target.value }))
-                    }
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>ФИО</Form.Label>
-                  <Form.Control
-                    className="soft-input"
-                    value={profileForm.full_name}
-                    onChange={(event) =>
-                      setProfileForm((prev) => ({ ...prev, full_name: event.target.value }))
-                    }
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>Должность</Form.Label>
-                  <Form.Control
-                    className="soft-input"
-                    value={profileForm.position}
-                    onChange={(event) =>
-                      setProfileForm((prev) => ({ ...prev, position: event.target.value }))
-                    }
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>Подразделение</Form.Label>
-                  <Form.Control
-                    className="soft-input"
-                    value={profileForm.department}
-                    onChange={(event) =>
-                      setProfileForm((prev) => ({ ...prev, department: event.target.value }))
-                    }
-                  />
-                </Form.Group>
-              </Col>
-            </Row>
-
-            <div className="form-actions-row mt-4">
-              <Button type="submit" className="primary-pill-button" disabled={isProfileSubmitting}>
-                {isProfileSubmitting ? 'Сохранение...' : 'Сохранить профиль'}
+          <div className="settings-header-actions">
+            {isSettingsMode ? (
+              <Button className="secondary-pill-button" onClick={() => setIsSettingsMode(false)}>
+                Вернуться к профилю
               </Button>
-            </div>
-          </Form>
-        </div>
-      </ContentCard>
-
-      <ContentCard
-        header={
-          <div className="section-header">
-            <h2 className="section-title mb-0">Смена пароля</h2>
+            ) : (
+              <Button className="primary-pill-button" onClick={() => setIsSettingsMode(true)}>
+                Настройки профиля
+              </Button>
+            )}
           </div>
-        }
-      >
-        <div className="form-shell">
-          {passwordError ? <Alert variant="danger">{passwordError}</Alert> : null}
-          {passwordSuccess ? <Alert variant="success">{passwordSuccess}</Alert> : null}
-
-          <Form onSubmit={handlePasswordSubmit}>
-            <Row className="g-3">
-              <Col md={12}>
-                <Form.Group>
-                  <Form.Label>Текущий пароль</Form.Label>
-                  <Form.Control
-                    type="password"
-                    className="soft-input"
-                    value={passwordForm.current_password}
-                    onChange={(event) =>
-                      setPasswordForm((prev) => ({
-                        ...prev,
-                        current_password: event.target.value,
-                      }))
-                    }
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>Новый пароль</Form.Label>
-                  <Form.Control
-                    type="password"
-                    className="soft-input"
-                    value={passwordForm.new_password}
-                    onChange={(event) =>
-                      setPasswordForm((prev) => ({
-                        ...prev,
-                        new_password: event.target.value,
-                      }))
-                    }
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>Подтверждение нового пароля</Form.Label>
-                  <Form.Control
-                    type="password"
-                    className="soft-input"
-                    value={passwordForm.confirm_password}
-                    onChange={(event) =>
-                      setPasswordForm((prev) => ({
-                        ...prev,
-                        confirm_password: event.target.value,
-                      }))
-                    }
-                  />
-                </Form.Group>
-              </Col>
-            </Row>
-
-            <div className="form-actions-row mt-4">
-              <Button
-                type="submit"
-                className="primary-pill-button"
-                disabled={isPasswordSubmitting}
-              >
-                {isPasswordSubmitting ? 'Изменение...' : 'Сменить пароль'}
-              </Button>
-            </div>
-          </Form>
         </div>
-      </ContentCard>
-    </div>
+      }
+    >
+      <div className="page-content-centered page-content-narrow">
+        <div className="profile-overview-grid mb-4">
+          <div className="profile-field">
+            <div className="profile-label">Email</div>
+            <div className="profile-value">{user?.email ?? '-'}</div>
+          </div>
+
+          <div className="profile-field">
+            <div className="profile-label">ФИО</div>
+            <div className="profile-value">{user?.full_name ?? '-'}</div>
+          </div>
+
+          <div className="profile-field">
+            <div className="profile-label">Должность</div>
+            <div className="profile-value">{user?.position ?? 'Не указана'}</div>
+          </div>
+
+          <div className="profile-field">
+            <div className="profile-label">Подразделение</div>
+            <div className="profile-value">{user?.department ?? 'Не указано'}</div>
+          </div>
+        </div>
+
+        {!isSettingsMode ? (
+          <div className="profile-empty">
+            Здесь отображается основная информация о пользователе. Для редактирования данных и
+            смены пароля открой «Настройки профиля».
+          </div>
+        ) : (
+          <Row className="g-4 profile-settings-grid">
+            <Col xl={6}>
+              <div className="form-meta-card profile-settings-card h-100">
+                <div className="form-meta-label">Редактирование профиля</div>
+
+                {profileError ? <Alert variant="danger">{profileError}</Alert> : null}
+                {profileSuccess ? <Alert variant="success">{profileSuccess}</Alert> : null}
+
+                <Form onSubmit={handleProfileSubmit}>
+                  <div className="settings-option-list">
+                    <Form.Group>
+                      <Form.Label>Email</Form.Label>
+                      <Form.Control
+                        className="soft-input"
+                        value={profileForm.email}
+                        onChange={(event) =>
+                          setProfileForm((prev) => ({ ...prev, email: event.target.value }))
+                        }
+                      />
+                    </Form.Group>
+
+                    <Form.Group>
+                      <Form.Label>ФИО</Form.Label>
+                      <Form.Control
+                        className="soft-input"
+                        value={profileForm.full_name}
+                        onChange={(event) =>
+                          setProfileForm((prev) => ({ ...prev, full_name: event.target.value }))
+                        }
+                      />
+                    </Form.Group>
+
+                    <Row className="g-3">
+                      <Col md={6}>
+                        <Form.Group>
+                          <Form.Label>Должность</Form.Label>
+                          <Form.Control
+                            className="soft-input"
+                            value={profileForm.position}
+                            onChange={(event) =>
+                              setProfileForm((prev) => ({ ...prev, position: event.target.value }))
+                            }
+                          />
+                        </Form.Group>
+                      </Col>
+
+                      <Col md={6}>
+                        <Form.Group>
+                          <Form.Label>Подразделение</Form.Label>
+                          <Form.Control
+                            className="soft-input"
+                            value={profileForm.department}
+                            onChange={(event) =>
+                              setProfileForm((prev) => ({ ...prev, department: event.target.value }))
+                            }
+                          />
+                        </Form.Group>
+                      </Col>
+                    </Row>
+                  </div>
+
+                  <div className="form-actions-row mt-4">
+                    <Button
+                      type="submit"
+                      className="primary-pill-button"
+                      disabled={isProfileSubmitting}
+                    >
+                      {isProfileSubmitting ? 'Сохранение...' : 'Сохранить профиль'}
+                    </Button>
+                  </div>
+                </Form>
+              </div>
+            </Col>
+
+            <Col xl={6}>
+              <div className="form-meta-card profile-settings-card h-100">
+                <div className="form-meta-label">Смена пароля</div>
+
+                {passwordError ? <Alert variant="danger">{passwordError}</Alert> : null}
+                {passwordSuccess ? <Alert variant="success">{passwordSuccess}</Alert> : null}
+
+                <Form onSubmit={handlePasswordSubmit}>
+                  <div className="settings-option-list">
+                    <Form.Group>
+                      <Form.Label>Текущий пароль</Form.Label>
+                      <Form.Control
+                        type="password"
+                        className="soft-input"
+                        value={passwordForm.current_password}
+                        onChange={(event) =>
+                          setPasswordForm((prev) => ({
+                            ...prev,
+                            current_password: event.target.value,
+                          }))
+                        }
+                      />
+                    </Form.Group>
+
+                    <Row className="g-3">
+                      <Col md={6}>
+                        <Form.Group>
+                          <Form.Label>Новый пароль</Form.Label>
+                          <Form.Control
+                            type="password"
+                            className="soft-input"
+                            value={passwordForm.new_password}
+                            onChange={(event) =>
+                              setPasswordForm((prev) => ({
+                                ...prev,
+                                new_password: event.target.value,
+                              }))
+                            }
+                          />
+                        </Form.Group>
+                      </Col>
+
+                      <Col md={6}>
+                        <Form.Group>
+                          <Form.Label>Подтверждение</Form.Label>
+                          <Form.Control
+                            type="password"
+                            className="soft-input"
+                            value={passwordForm.confirm_password}
+                            onChange={(event) =>
+                              setPasswordForm((prev) => ({
+                                ...prev,
+                                confirm_password: event.target.value,
+                              }))
+                            }
+                          />
+                        </Form.Group>
+                      </Col>
+                    </Row>
+                  </div>
+
+                  <div className="form-actions-row mt-4">
+                    <Button
+                      type="submit"
+                      className="primary-pill-button"
+                      disabled={isPasswordSubmitting}
+                    >
+                      {isPasswordSubmitting ? 'Изменение...' : 'Сменить пароль'}
+                    </Button>
+                  </div>
+                </Form>
+              </div>
+            </Col>
+          </Row>
+        )}
+      </div>
+    </ContentCard>
   );
 }

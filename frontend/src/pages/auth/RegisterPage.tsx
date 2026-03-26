@@ -1,7 +1,13 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Alert, Button, Card, Form } from 'react-bootstrap';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthProvider';
+
+const authHighlights = [
+  'Единый вход в рабочее пространство проектов и отчётов.',
+  'Фоновая обработка файлов с контролем статусов и ошибок.',
+  'Согласование, экспорт результатов и аналитические панели.',
+];
 
 export default function RegisterPage() {
   const { register } = useAuth();
@@ -19,14 +25,14 @@ export default function RegisterPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   };
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError('');
     setLoading(true);
 
     try {
       await register(form);
-      navigate('/');
+      navigate('/dashboard');
     } catch {
       setError('Не удалось зарегистрироваться.');
     } finally {
@@ -36,53 +42,77 @@ export default function RegisterPage() {
 
   return (
     <div className="auth-page">
-      <Card className="auth-card">
-        <Card.Body>
-          <h1 className="auth-title">Регистрация</h1>
-          <p className="auth-subtitle">Создание учетной записи сотрудника</p>
+      <div className="auth-layout">
+        <div className="auth-preview-panel">
+          <div className="auth-preview-badge">Новая учётная запись</div>
+          <h1 className="auth-preview-title">Регистрация в системе обработки отчётности</h1>
+          <p className="auth-preview-text">
+            После регистрации заявка будет направлена администратору. После подтверждения откроется доступ к основным рабочим разделам платформы.
+          </p>
+          <ul className="auth-preview-list">
+            {authHighlights.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
 
-          {error ? <Alert variant="danger">{error}</Alert> : null}
+        <Card className="auth-card auth-card-elevated">
+          <Card.Body>
+            <div className="auth-card-topbar">
+              <Link to="/" className="btn secondary-pill-button auth-back-button">
+                На главную
+              </Link>
+            </div>
 
-          <Form onSubmit={handleSubmit}>
-            <Form.Group className="mb-3">
-              <Form.Label>ФИО</Form.Label>
-              <Form.Control
-                value={form.full_name}
-                onChange={(e) => updateField('full_name', e.target.value)}
-                placeholder="Иванов Иван Иванович"
-              />
-            </Form.Group>
+            <h1 className="auth-title">Регистрация</h1>
+            <p className="auth-subtitle">Создание учётной записи сотрудника</p>
 
-            <Form.Group className="mb-3">
-              <Form.Label>Email</Form.Label>
-              <Form.Control
-                value={form.email}
-                onChange={(e) => updateField('email', e.target.value)}
-                type="email"
-                placeholder="name@company.ru"
-              />
-            </Form.Group>
+            {error ? <Alert variant="danger">{error}</Alert> : null}
 
-            <Form.Group className="mb-4">
-              <Form.Label>Пароль</Form.Label>
-              <Form.Control
-                value={form.password}
-                onChange={(e) => updateField('password', e.target.value)}
-                type="password"
-                placeholder="Введите пароль"
-              />
-            </Form.Group>
+            <Form onSubmit={handleSubmit}>
+              <Form.Group className="mb-3">
+                <Form.Label>ФИО</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={form.full_name}
+                  onChange={(e) => updateField('full_name', e.target.value)}
+                  placeholder="Иванов Иван Иванович"
+                />
+              </Form.Group>
 
-            <Button type="submit" className="primary-pill-button w-100" disabled={loading}>
-              {loading ? 'Создаем...' : 'Создать аккаунт'}
-            </Button>
-          </Form>
+              <Form.Group className="mb-3">
+                <Form.Label>Email</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={form.email}
+                  onChange={(e) => updateField('email', e.target.value)}
+                  type="email"
+                  placeholder="name@company.ru"
+                />
+              </Form.Group>
 
-          <div className="auth-footer">
-            Уже есть аккаунт? <Link to="/login">Войти</Link>
-          </div>
-        </Card.Body>
-      </Card>
+              <Form.Group className="mb-4">
+                <Form.Label>Пароль</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={form.password}
+                  onChange={(e) => updateField('password', e.target.value)}
+                  type="password"
+                  placeholder="Введите пароль"
+                />
+              </Form.Group>
+
+              <Button type="submit" className="primary-pill-button w-100" disabled={loading}>
+                {loading ? 'Создаём...' : 'Создать аккаунт'}
+              </Button>
+            </Form>
+
+            <div className="auth-footer">
+              Уже есть аккаунт? <Link to="/login">Войти</Link>
+            </div>
+          </Card.Body>
+        </Card>
+      </div>
     </div>
   );
 }

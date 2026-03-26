@@ -25,7 +25,7 @@ export default function ProjectDetailsPage() {
   const { projectId } = useParams<{ projectId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { activeProjectId, setActiveProjectId } = useProjectContext();
+  const { activeProjectId, setActiveProjectId, reloadProjects } = useProjectContext();
 
   const numericProjectId = Number(projectId);
 
@@ -108,6 +108,55 @@ export default function ProjectDetailsPage() {
     if (!user || !project) return false;
     return user.role.code === 'admin' || user.id === project.owner_id;
   }, [user, project]);
+
+  const canArchiveProject = useMemo(() => {
+    if (!user || !project) return false;
+    return user.role.code === 'admin' || user.id === project.owner_id;
+  }, [user, project]);
+
+
+  const handleToggleArchive = async () => {
+    if (!project) {
+      setError('Проект не найден.');
+      return;
+    }
+
+    if (!canArchiveProject) {
+      setError('Архивировать проект может только владелец или администратор.');
+      return;
+    }
+
+    const nextArchivedState = !project.is_archived;
+    const actionLabel = nextArchivedState ? 'архивировать' : 'восстановить';
+
+    if (!window.confirm(`Подтвердить действие: ${actionLabel} проект "${project.name}"?`)) {
+      return;
+    }
+
+    try {
+      setError('');
+      setSuccessMessage('');
+
+      const updatedProject = await projectsApi.update(project.id, {
+          is_archived: nextArchivedState,
+        });
+
+        setProject(updatedProject);
+
+        const refreshedMembers = await projectsApi.listMembers(project.id);
+        setMembers(refreshedMembers);
+
+        await reloadProjects();
+
+      setSuccessMessage(
+        nextArchivedState
+          ? `Проект "${project.name}" перенесён в архив.`
+          : `Проект "${project.name}" восстановлен из архива.`,
+      );
+    } catch {
+      setError('Не удалось изменить статус проекта.');
+    }
+  };
 
   const handleRequestAccess = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -328,6 +377,15 @@ export default function ProjectDetailsPage() {
                 {activeProjectId === project.id ? 'Активный проект' : 'Сделать активным'}
               </Button>
 
+              {canArchiveProject ? (
+                <Button
+                  className="secondary-pill-button"
+                  onClick={() => void handleToggleArchive()}
+                >
+                  {project.is_archived ? 'Восстановить проект' : 'Архивировать проект'}
+                </Button>
+              ) : null}
+
               {canRequestAccess ? (
                 <Button className="primary-pill-button" onClick={() => setShowRequestModal(true)}>
                   Запросить доступ
@@ -338,7 +396,7 @@ export default function ProjectDetailsPage() {
         }
       >
         {error ? <Alert variant="danger">{error}</Alert> : null}
-        {successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
+        {successMessage ? <Alert variant="success" className="app-soft-alert app-soft-alert-success">{successMessage}</Alert> : null}
 
         <div className="form-meta-grid mb-4">
           <div className="form-meta-card">
@@ -470,29 +528,31 @@ export default function ProjectDetailsPage() {
                         <td>{formatDateTime(member.requested_at)}</td>
                         <td>{formatDateTime(member.reviewed_at)}</td>
                         <td>
-                          {isOwnerRow ? (
-                            <span className="text-muted">Недоступно</span>
-                          ) : canManageThisMember ? (
-                            <div className="project-member-actions">
-                              <Button
-                                size="sm"
-                                className="secondary-pill-button project-member-action-button"
-                                onClick={() => openEditMemberModal(member)}
-                              >
-                                Изменить роль
-                              </Button>
+                          <div className="table-action-center">
+                            {isOwnerRow ? (
+                              <span className="text-muted">Недоступно</span>
+                            ) : canManageThisMember ? (
+                              <div className="project-member-actions">
+                                <Button
+                                  size="sm"
+                                  className="secondary-pill-button project-member-action-button"
+                                  onClick={() => openEditMemberModal(member)}
+                                >
+                                  Изменить роль
+                                </Button>
 
-                              <Button
-                                size="sm"
-                                className="secondary-pill-button project-member-action-button project-member-remove-button"
-                                onClick={() => openDeleteMemberModal(member)}
-                              >
-                                Удалить
-                              </Button>
-                            </div>
-                          ) : (
-                            <span className="text-muted">-</span>
-                          )}
+                                <Button
+                                  size="sm"
+                                  className="secondary-pill-button project-member-action-button project-member-remove-button"
+                                  onClick={() => openDeleteMemberModal(member)}
+                                >
+                                  Удалить
+                                </Button>
+                              </div>
+                            ) : (
+                              <span className="text-muted">-</span>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );

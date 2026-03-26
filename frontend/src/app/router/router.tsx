@@ -5,6 +5,7 @@ import { RoleGuard } from '../../features/auth/RoleGuard';
 import LoginPage from '../../pages/auth/LoginPage';
 import RegisterPage from '../../pages/auth/RegisterPage';
 import HomePage from '../../pages/dashboard/HomePage';
+import LandingPage from '../../pages/public/LandingPage';
 import ReportsPage from '../../pages/reports/ReportsPage';
 import ReportApprovalsPage from '../../pages/reports/ReportApprovalsPage';
 import AnalyticsPage from '../../pages/analytics/AnalyticsPage';
@@ -20,8 +21,13 @@ import NotificationsPage from '../../pages/notifications/NotificationsPage';
 import ProjectsPage from '../../pages/projects/ProjectsPage';
 import ProjectDetailsPage from '../../pages/projects/ProjectDetailsPage';
 import SettingsPage from '../../pages/settings/SettingsPage';
+import AdminAuditPage from '../../pages/admin/AdminAuditPage';
 
 export const router = createBrowserRouter([
+  {
+    path: '/',
+    element: <LandingPage />,
+  },
   {
     path: '/login',
     element: <LoginPage />,
@@ -39,7 +45,7 @@ export const router = createBrowserRouter([
     ),
     children: [
       {
-        index: true,
+        path: 'dashboard',
         element: <HomePage />,
       },
       {
@@ -95,6 +101,14 @@ export const router = createBrowserRouter([
         element: (
           <RoleGuard roles={['admin']}>
             <AdminTemplatesPage />
+          </RoleGuard>
+        ),
+      },
+      {
+        path: 'admin/audit',
+        element: (
+          <RoleGuard roles={['admin']}>
+            <AdminAuditPage />
           </RoleGuard>
         ),
       },

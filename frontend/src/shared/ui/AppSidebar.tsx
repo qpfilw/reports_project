@@ -3,12 +3,12 @@ import { Button } from 'react-bootstrap';
 import { useAuth } from '../../features/auth/AuthProvider';
 
 const navItems = [
-  { label: 'Главная', to: '/' },
-  { label: 'Проекты', to: '/projects' },
-  { label: 'Отчетность', to: '/reports' },
-  { label: 'Аналитика', to: '/analytics' },
-  { label: 'Уведомления', to: '/notifications' },
-  { label: 'Администратор', to: '/admin', onlyAdmin: true },
+  { label: 'Главная', to: '/dashboard' },
+  { label: 'Проекты', to: '/projects', requiresApproved: true },
+  { label: 'Отчётность', to: '/reports', requiresApproved: true },
+  { label: 'Аналитика', to: '/analytics', requiresApproved: true },
+  { label: 'Уведомления', to: '/notifications', requiresApproved: true },
+  { label: 'Администратор', to: '/admin', onlyAdmin: true, requiresApproved: true },
 ];
 
 function getInitials(fullName?: string) {
@@ -58,7 +58,17 @@ export function AppSidebar() {
 
         <nav className="sidebar-nav">
           {navItems
-            .filter((item) => !item.onlyAdmin || user?.role.code === 'admin')
+            .filter((item) => {
+              if (item.onlyAdmin && user?.role.code !== 'admin') {
+                return false;
+              }
+
+              if (item.requiresApproved && user?.role.code === 'pending') {
+                return false;
+              }
+
+              return true;
+            })
             .map((item) => (
               <NavLink
                 key={item.to}

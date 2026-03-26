@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Alert, Button, Form } from 'react-bootstrap';
+import { useLocation } from 'react-router-dom';
 import { storage } from '../../shared/lib/storage';
 import { saveLastMlTemplateId } from '../../shared/lib/userSettings';
 import { ContentCard } from '../../shared/ui/ContentCard';
@@ -136,6 +137,7 @@ function removeAllStoredSettings() {
 }
 
 export default function SettingsPage() {
+  const location = useLocation();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -211,6 +213,23 @@ export default function SettingsPage() {
     }
   }, []);
 
+
+  useEffect(() => {
+    if (!location.hash) {
+      return;
+    }
+
+    const element = document.getElementById(location.hash.slice(1));
+
+    if (!element) {
+      return;
+    }
+
+    window.setTimeout(() => {
+      element.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+  }, [location.hash]);
+
   const updateSetting = <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
     setSaved(false);
@@ -253,12 +272,12 @@ export default function SettingsPage() {
         </div>
       }
     >
-      <div className="form-shell">
+      <div className="page-content-centered page-content-wide">
         {error ? <Alert variant="danger">{error}</Alert> : null}
         {saved ? <Alert variant="success">Настройки успешно сохранены.</Alert> : null}
 
         <div className="settings-grid">
-          <div className="form-meta-card">
+          <div id="settings-interface" className="form-meta-card">
             <div className="form-meta-label">Интерфейс</div>
 
             <div className="settings-option-list">
@@ -297,7 +316,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="form-meta-card">
+          <div id="settings-analytics" className="form-meta-card">
             <div className="form-meta-label">Аналитика и дашборды</div>
 
             <div className="settings-option-list">
@@ -360,7 +379,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="form-meta-card">
+          <div id="settings-reports" className="form-meta-card">
             <div className="form-meta-label">Отчёты и обработка</div>
 
             <div className="settings-option-list">
@@ -412,7 +431,7 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          <div className="form-meta-card">
+          <div id="settings-notifications" className="form-meta-card">
             <div className="form-meta-label">Уведомления</div>
 
             <div className="settings-option-list">
@@ -437,7 +456,7 @@ export default function SettingsPage() {
               />
             </div>
           </div>
-          <div className="form-meta-card">
+          <div id="settings-summary" className="form-meta-card">
             <div className="form-meta-label">Сводка текущих предпочтений</div>
 
             <div className="settings-summary-list">

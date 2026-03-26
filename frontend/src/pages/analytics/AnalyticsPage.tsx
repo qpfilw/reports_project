@@ -677,11 +677,16 @@ export default function AnalyticsPage() {
         header={
         <div className="toolbar-row">
             <div className="toolbar-left">
-              <h2 className="section-title mb-0">
-                {analyticsScopedToActiveProject && activeProject
-                  ? `Аналитика · ${activeProject.name}`
-                  : 'Аналитика'}
-              </h2>
+              <div>
+                <h2 className="section-title mb-0">Аналитика</h2>
+                <div className="section-subtitle">
+                  {analyticsScopedToActiveProject
+                    ? activeProject
+                      ? `Активный проект: ${activeProject.name}`
+                      : 'Выберите активный проект для просмотра аналитики'
+                    : 'Сводная аналитика по всем доступным проектам'}
+                </div>
+              </div>
 
               {effectiveProjectId != null || !analyticsScopedToActiveProject ? (
                 <Form.Select
@@ -873,13 +878,15 @@ export default function AnalyticsPage() {
                             <td>{formatRows(item.rows_count)}</td>
                             <td>{formatDateTime(item.created_at)}</td>
                             <td>
-                              <Button
-                                size="sm"
-                                className="primary-pill-button"
-                                onClick={() => navigate(`/reports/${item.report_id}/result`)}
-                              >
-                                Открыть
-                              </Button>
+                              <div className="table-action-center">
+                                <Button
+                                  size="sm"
+                                  className="primary-pill-button analytics-open-button"
+                                  onClick={() => navigate(`/reports/${item.report_id}/result`)}
+                                >
+                                  Открыть
+                                </Button>
+                              </div>
                             </td>
                           </tr>
                         ))

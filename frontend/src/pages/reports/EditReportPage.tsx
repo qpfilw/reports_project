@@ -7,11 +7,17 @@ import { processingApi } from '../../shared/api/processing';
 import { projectsApi } from '../../shared/api/projects';
 import { reportTypesApi } from '../../shared/api/reportTypes';
 import { reportsApi } from '../../shared/api/reports';
+import { uploadsApi } from '../../shared/api/uploads';
+import {
+  getReportStatusClassName,
+  getReportStatusLabel,
+} from '../../shared/lib/reportStatus';
 import { readUserSettings, saveLastMlTemplateId } from '../../shared/lib/userSettings';
 import type { ProjectMember } from '../../shared/types/project';
-import type { ReportDetail } from '../../shared/types/report';
+import type { ReportDetail, ReportStatus } from '../../shared/types/report';
 import type { ReportType } from '../../shared/types/report-type';
 import type { MlTemplate } from '../../shared/types/template';
+import type { ReportUpload } from '../../shared/types/upload';
 import { ContentCard } from '../../shared/ui/ContentCard';
 
 interface EditReportFormState {
@@ -40,9 +46,33 @@ const initialForm: EditReportFormState = {
   last_comment: '',
 };
 
+const editableProcessingStatuses: ReportStatus[] = [
+  'draft',
+  'uploaded',
+  'failed',
+  'rejected',
+  'rework',
+];
+
 function normalizeDate(value?: string | null) {
   if (!value) return '';
   return value.slice(0, 10);
+}
+
+function getLatestUpload(uploads: ReportUpload[], reportId: number) {
+  return uploads
+    .filter((item) => item.report_id === reportId)
+    .sort((left, right) => {
+      if (left.is_latest && !right.is_latest) return -1;
+      if (!left.is_latest && right.is_latest) return 1;
+      return right.upload_version - left.upload_version;
+    })[0] ?? null;
+}
+
+function formatDateTime(value?: string | null) {
+  if (!value) return '—';
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
 }
 
 export default function EditReportPage() {
@@ -59,6 +89,7 @@ export default function EditReportPage() {
   const [reportTypes, setReportTypes] = useState<ReportType[]>([]);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
   const [templates, setTemplates] = useState<MlTemplate[]>([]);
+  const [latestUpload, setLatestUpload] = useState<ReportUpload | null>(null);
 
   const [reprocessFile, setReprocessFile] = useState<File | null>(null);
   const [reprocessComment, setReprocessComment] = useState('');
@@ -87,7 +118,10 @@ export default function EditReportPage() {
     [approvedMembers],
   );
 
-  const canRelaunchProcessing = report?.status === 'rework' || report?.status === 'failed';
+  const canManageProcessing = Boolean(report && editableProcessingStatuses.includes(report.status));
+  const processingButtonLabel = reprocessFile
+    ? 'Сохранить, загрузить и запустить'
+    : 'Сохранить и запустить обработку';
 
   useEffect(() => {
     (async () => {
@@ -102,14 +136,16 @@ export default function EditReportPage() {
         setError('');
 
         const reportData = await reportsApi.getById(numericReportId);
-        const [reportTypesData, membersData] = await Promise.all([
+        const [reportTypesData, membersData, uploadsData] = await Promise.all([
           reportTypesApi.list(),
           projectsApi.listMembers(reportData.project_id),
+          uploadsApi.list(),
         ]);
 
         setReport(reportData);
         setReportTypes(reportTypesData.filter((item) => item.is_active));
         setProjectMembers(membersData);
+        setLatestUpload(getLatestUpload(uploadsData, reportData.id));
 
         setForm({
           report_type_id: String(reportData.report_type_id),
@@ -259,7 +295,7 @@ export default function EditReportPage() {
 
       setSuccessMessage('Изменения отчета успешно сохранены.');
 
-      setTimeout(() => {
+      window.setTimeout(() => {
         navigate(`/reports/${updated.id}/result`);
       }, 700);
     } catch {
@@ -278,13 +314,8 @@ export default function EditReportPage() {
       return;
     }
 
-    if (!canRelaunchProcessing) {
-      setError('Повторная загрузка доступна только для отчетов на доработке или с ошибкой.');
-      return;
-    }
-
-    if (!reprocessFile) {
-      setError('Сначала выбери новый файл для повторной обработки.');
+    if (!canManageProcessing) {
+      setError('Для текущего статуса запуск обработки недоступен.');
       return;
     }
 
@@ -296,15 +327,26 @@ export default function EditReportPage() {
         return;
       }
 
-      const upload = await reportsApi.uploadFile(
-        updated.id,
-        reprocessFile,
-        reprocessComment.trim() || undefined,
+      let uploadId = latestUpload?.id ?? null;
+
+      if (reprocessFile) {
+        const upload = await reportsApi.uploadFile(
+          updated.id,
+          reprocessFile,
+          reprocessComment.trim() || undefined,
         );
+        uploadId = upload.id;
+        setLatestUpload(upload);
+      }
+
+      if (!uploadId) {
+        setError('Сначала выбери файл отчета для загрузки.');
+        return;
+      }
 
       const task = await processingApi.launchTask({
         report_id: updated.id,
-        report_upload_id: upload.id,
+        report_upload_id: uploadId,
         ml_template_id: updated.ml_template_id ?? null,
         created_by: user.id,
         priority: Number(reprocessPriority),
@@ -313,23 +355,29 @@ export default function EditReportPage() {
 
       navigate(`/tasks/${task.id}`);
     } catch {
-      setError('Не удалось сохранить изменения, загрузить файл и перезапустить обработку.');
+      setError('Не удалось сохранить изменения, загрузить файл и запустить обработку.');
     } finally {
       setIsRelaunching(false);
     }
   };
 
+  const headerContent = (
+    <div className="toolbar-row">
+      <div className="toolbar-left">
+        <h2 className="section-title mb-0">Редактирование отчета</h2>
+      </div>
+
+      <div className="toolbar-actions">
+        <Button className="secondary-pill-button" onClick={() => navigate(`/reports/${numericReportId}/result`)}>
+          Назад
+        </Button>
+      </div>
+    </div>
+  );
+
   if (isLoading) {
     return (
-      <ContentCard
-        header={
-          <div className="toolbar-row">
-            <div className="toolbar-left">
-              <h2 className="section-title mb-0">Редактирование отчета</h2>
-            </div>
-          </div>
-        }
-      >
+      <ContentCard header={headerContent}>
         <div className="py-5 text-center">
           <Spinner animation="border" />
         </div>
@@ -339,16 +387,8 @@ export default function EditReportPage() {
 
   if (!report) {
     return (
-      <ContentCard
-        header={
-          <div className="toolbar-row">
-            <div className="toolbar-left">
-              <h2 className="section-title mb-0">Редактирование отчета</h2>
-            </div>
-          </div>
-        }
-      >
-        <Alert variant="danger" className="mb-0">
+      <ContentCard header={headerContent}>
+        <Alert variant="danger" className="mb-0 app-soft-alert app-soft-alert-danger">
           {error || 'Отчет не найден.'}
         </Alert>
       </ContentCard>
@@ -356,27 +396,14 @@ export default function EditReportPage() {
   }
 
   return (
-    <ContentCard
-      header={
-        <div className="toolbar-row">
-          <div className="toolbar-left">
-            <h2 className="section-title mb-0">Редактирование отчета</h2>
-          </div>
-
-          <div className="toolbar-actions">
-            <Button
-              className="secondary-pill-button"
-              onClick={() => navigate(`/reports/${report.id}/result`)}
-            >
-              Назад
-            </Button>
-          </div>
-        </div>
-      }
-    >
-      <div className="form-shell">
-        {error ? <Alert variant="danger">{error}</Alert> : null}
-        {successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
+    <ContentCard header={headerContent}>
+      <div className="form-shell page-content-centered page-content-narrow report-edit-shell">
+        {error ? <Alert variant="danger" className="app-soft-alert app-soft-alert-danger">{error}</Alert> : null}
+        {successMessage ? (
+          <Alert variant="success" className="app-soft-alert app-soft-alert-success">
+            {successMessage}
+          </Alert>
+        ) : null}
 
         <div className="form-meta-grid mb-4">
           <div className="form-meta-card">
@@ -386,12 +413,16 @@ export default function EditReportPage() {
 
           <div className="form-meta-card">
             <div className="form-meta-label">Проект</div>
-            <div className="form-meta-value">{report.project_id}</div>
+            <div className="form-meta-value">#{report.project_id}</div>
           </div>
 
           <div className="form-meta-card">
             <div className="form-meta-label">Текущий статус</div>
-            <div className="form-meta-value">{report.status}</div>
+            <div className="form-meta-value">
+              <span className={getReportStatusClassName(report.status)}>
+                {getReportStatusLabel(report.status)}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -549,26 +580,56 @@ export default function EditReportPage() {
             </Col>
           </Row>
 
-          {canRelaunchProcessing ? (
+          {canManageProcessing ? (
             <div className="form-meta-card mt-4">
-              <div className="form-meta-label">Повторная загрузка и обработка</div>
+              <div className="form-meta-label">Файл отчета и запуск обработки</div>
 
               <div className="archive-warning-text mb-3">
-                Для отчётов со статусом <strong>на доработке</strong> или <strong>ошибка</strong>
-                можно сохранить изменения, загрузить новый файл и сразу запустить повторную
-                обработку.
+                Для текущего статуса можно сохранить изменения, при необходимости загрузить новый
+                файл и запустить обработку заново. Если новый файл не выбран, система использует
+                последнюю доступную загрузку отчета.
               </div>
+
+              <Row className="g-3 mb-3">
+                <Col md={6}>
+                  <div className="result-summary-item h-100">
+                    <div className="result-summary-key">Последняя загрузка</div>
+                    <div className="result-summary-value">
+                      {latestUpload ? latestUpload.original_filename : 'Файл ещё не загружен'}
+                    </div>
+                  </div>
+                </Col>
+                <Col md={3}>
+                  <div className="result-summary-item h-100">
+                    <div className="result-summary-key">Версия файла</div>
+                    <div className="result-summary-value">
+                      {latestUpload ? latestUpload.upload_version : '—'}
+                    </div>
+                  </div>
+                </Col>
+                <Col md={3}>
+                  <div className="result-summary-item h-100">
+                    <div className="result-summary-key">Загружен</div>
+                    <div className="result-summary-value">
+                      {latestUpload ? formatDateTime(latestUpload.uploaded_at) : '—'}
+                    </div>
+                  </div>
+                </Col>
+              </Row>
 
               <Row className="g-3">
                 <Col md={12}>
                   <Form.Group>
-                    <Form.Label>Файл отчета</Form.Label>
+                    <Form.Label>Новый файл отчета</Form.Label>
                     <Form.Control
                       type="file"
                       accept=".xlsx,.xls,.csv"
                       onChange={handleReprocessFileChange}
                       className="soft-input"
                     />
+                    <Form.Text className="text-muted">
+                      Поле необязательно, если у отчета уже есть ранее загруженный файл.
+                    </Form.Text>
                   </Form.Group>
                 </Col>
 
@@ -607,9 +668,7 @@ export default function EditReportPage() {
                   onClick={() => void handleSaveAndRelaunch()}
                   disabled={isRelaunching}
                 >
-                  {isRelaunching
-                    ? 'Сохранение и запуск...'
-                    : 'Сохранить, загрузить и запустить заново'}
+                  {isRelaunching ? 'Сохранение и запуск...' : processingButtonLabel}
                 </Button>
               </div>
             </div>

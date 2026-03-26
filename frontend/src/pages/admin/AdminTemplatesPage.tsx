@@ -388,7 +388,7 @@ export default function AdminTemplatesPage() {
                               <span className="template-chip template-chip-plain">Нет</span>
                             )}
                           </td>
-                          <td>
+                          <td className="table-action-cell">
                             <div className="admin-action-group">
                               <Button
                                 size="sm"

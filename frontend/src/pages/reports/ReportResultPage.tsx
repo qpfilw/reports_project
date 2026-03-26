@@ -483,7 +483,7 @@ export default function ReportResultPage() {
           </div>
         }
       >
-        <div className="form-shell">
+        <div className="page-content-centered page-content-wide">
           {error ? <Alert variant="danger">{error}</Alert> : null}
           {successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
 
@@ -771,13 +771,15 @@ export default function ReportResultPage() {
                         <td>{formatBytes(item.file_size)}</td>
                         <td>{formatDateTime(item.created_at)}</td>
                         <td>
-                          <Button
-                            size="sm"
-                            className="primary-pill-button result-download-button"
-                            onClick={() => handleDownload(item.id, item.format)}
-                          >
-                            Скачать
-                          </Button>
+                          <div className="table-action-center">
+                            <Button
+                              size="sm"
+                              className="primary-pill-button result-download-button"
+                              onClick={() => handleDownload(item.id, item.format)}
+                            >
+                              Скачать
+                            </Button>
+                          </div>
                         </td>
                       </tr>
                     ))}

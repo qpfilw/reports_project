@@ -172,9 +172,12 @@ export default function ReportsPage() {
         header={
           <div className="toolbar-row">
             <div className="toolbar-left">
-              <h2 className="section-title mb-0">
-                {activeProject ? `Отчетность · ${activeProject.name}` : 'Отчетность'}
-              </h2>
+              <div>
+                <h2 className="section-title">Отчётность</h2>
+                <div className="section-subtitle">
+                  {activeProject ? `Активный проект: ${activeProject.name}` : 'Выберите активный проект для работы с отчётами'}
+                </div>
+              </div>
 
               {activeProjectId != null ? (
                 <Form.Select

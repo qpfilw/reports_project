@@ -11,7 +11,7 @@ export function RoleGuard({ roles, children }: RoleGuardProps) {
   const { user } = useAuth();
 
   if (!user || !roles.includes(user.role.code)) {
-    return <Navigate to="/" replace />;
+    return <Navigate to="/dashboard" replace />;
   }
 
   return <>{children}</>;

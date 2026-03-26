@@ -8,6 +8,7 @@ import type {
   ProjectMember,
   RequestProjectAccessPayload,
   UpdateProjectMemberPayload,
+  UpdateProjectPayload,
 } from '../types/project';
 
 export const projectsApi = {
@@ -23,6 +24,11 @@ export const projectsApi = {
 
   create: async (payload: CreateProjectPayload) => {
     const response = await apiClient.post<ProjectDetail>('/projects', payload);
+    return response.data;
+  },
+
+  update: async (projectId: number, payload: UpdateProjectPayload) => {
+    const response = await apiClient.patch<ProjectDetail>(`/projects/${projectId}`, payload);
     return response.data;
   },
 

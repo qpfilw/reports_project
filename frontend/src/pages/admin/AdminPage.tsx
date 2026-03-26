@@ -22,6 +22,15 @@ function formatDateTime(value?: string | null) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
 }
 
+
+function getActivityBadgeClass(isActive: boolean) {
+  return isActive ? 'status-badge status-badge-success' : 'status-badge status-badge-muted';
+}
+
+function getBlockBadgeClass(isBlocked: boolean) {
+  return isBlocked ? 'status-badge status-badge-danger' : 'status-badge status-badge-success';
+}
+
 export default function AdminPage() {
   const [overview, setOverview] = useState<AdminOverview | null>(null);
   const [pendingUsers, setPendingUsers] = useState<AdminPendingUser[]>([]);
@@ -122,6 +131,9 @@ export default function AdminPage() {
             </div>
 
             <div className="admin-header-actions">
+            <Button className="secondary-pill-button" onClick={() => navigate('/admin/audit')}>
+                Журнал аудита
+            </Button>
             <Button className="secondary-pill-button" onClick={() => navigate('/admin/templates')}>
                 ML-шаблоны
             </Button>
@@ -337,8 +349,16 @@ export default function AdminPage() {
                               </Form.Select>
                             </div>
                           </td>
-                          <td>{user.is_active ? 'Активен' : 'Неактивен'}</td>
-                          <td>{user.is_blocked ? 'Да' : 'Нет'}</td>
+                          <td>
+                            <span className={getActivityBadgeClass(user.is_active)}>
+                              {user.is_active ? 'Активен' : 'Неактивен'}
+                            </span>
+                          </td>
+                          <td>
+                            <span className={getBlockBadgeClass(user.is_blocked)}>
+                              {user.is_blocked ? 'Да' : 'Нет'}
+                            </span>
+                          </td>
                           <td>{formatDateTime(user.last_login_at)}</td>
                           <td>
                             <div className="admin-action-group">

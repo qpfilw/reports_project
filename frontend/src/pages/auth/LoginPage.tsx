@@ -1,7 +1,13 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Alert, Button, Card, Form } from 'react-bootstrap';
-import { useNavigate, Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthProvider';
+
+const authHighlights = [
+  'Загрузка и обработка отчётных файлов в едином интерфейсе.',
+  'Контроль статусов, согласование, уведомления и экспорт.',
+  'Аналитика по проектам и сохранённые пользовательские дашборды.',
+];
 
 export default function LoginPage() {
   const { login } = useAuth();
@@ -12,14 +18,14 @@ export default function LoginPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (event: React.FormEvent) => {
+  const handleSubmit = async (event: FormEvent) => {
     event.preventDefault();
     setError('');
     setLoading(true);
 
     try {
       await login({ email, password });
-      navigate('/');
+      navigate('/dashboard');
     } catch {
       setError('Не удалось выполнить вход. Проверь email и пароль.');
     } finally {
@@ -29,44 +35,67 @@ export default function LoginPage() {
 
   return (
     <div className="auth-page">
-      <Card className="auth-card">
-        <Card.Body>
-          <h1 className="auth-title">Вход в систему</h1>
-          <p className="auth-subtitle">Платформа обработки отчетности</p>
+      <div className="auth-layout">
+        <div className="auth-preview-panel">
+          <div className="auth-preview-badge">ReportRT</div>
+          <h1 className="auth-preview-title">Веб-платформа для автоматизированной обработки отчётности</h1>
+          <p className="auth-preview-text">
+            Работайте с проектами, отчётами, обработкой, согласованием и аналитикой в едином контуре.
+          </p>
+          <ul className="auth-preview-list">
+            {authHighlights.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+        </div>
 
-          {error ? <Alert variant="danger">{error}</Alert> : null}
+        <Card className="auth-card auth-card-elevated">
+          <Card.Body>
+            <div className="auth-card-topbar">
+              <Link to="/" className="btn secondary-pill-button auth-back-button">
+                На главную
+              </Link>
+            </div>
 
-          <Form onSubmit={handleSubmit}>
-            <Form.Group className="mb-3">
-              <Form.Label>Email</Form.Label>
-              <Form.Control
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                type="email"
-                placeholder="Введите email"
-              />
-            </Form.Group>
+            <h1 className="auth-title">Вход в систему</h1>
+            <p className="auth-subtitle">Платформа обработки отчётности</p>
 
-            <Form.Group className="mb-4">
-              <Form.Label>Пароль</Form.Label>
-              <Form.Control
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type="password"
-                placeholder="Введите пароль"
-              />
-            </Form.Group>
+            {error ? <Alert variant="danger">{error}</Alert> : null}
 
-            <Button type="submit" className="primary-pill-button w-100" disabled={loading}>
-              {loading ? 'Входим...' : 'Войти'}
-            </Button>
-          </Form>
+            <Form onSubmit={handleSubmit}>
+              <Form.Group className="mb-3">
+                <Form.Label>Email</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  type="email"
+                  placeholder="Введите email"
+                />
+              </Form.Group>
 
-          <div className="auth-footer">
-            Нет аккаунта? <Link to="/register">Зарегистрироваться</Link>
-          </div>
-        </Card.Body>
-      </Card>
+              <Form.Group className="mb-4">
+                <Form.Label>Пароль</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  type="password"
+                  placeholder="Введите пароль"
+                />
+              </Form.Group>
+
+              <Button type="submit" className="primary-pill-button w-100" disabled={loading}>
+                {loading ? 'Входим...' : 'Войти'}
+              </Button>
+            </Form>
+
+            <div className="auth-footer">
+              Нет аккаунта? <Link to="/register">Зарегистрироваться</Link>
+            </div>
+          </Card.Body>
+        </Card>
+      </div>
     </div>
   );
 }

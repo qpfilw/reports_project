@@ -58,6 +58,13 @@ export interface AddProjectMemberPayload {
   request_note?: string | null;
 }
 
+export interface UpdateProjectPayload {
+  name?: string;
+  code?: string;
+  description?: string | null;
+  is_archived?: boolean | null;
+}
+
 export interface UpdateProjectMemberPayload {
   member_role?: ProjectMemberRole;
   review_note?: string | null;

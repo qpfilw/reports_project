@@ -253,9 +253,14 @@ export default function ReportApprovalsPage() {
         header={
           <div className="toolbar-row">
             <div className="toolbar-left">
-              <h2 className="section-title mb-0">
-                {activeProject ? `Согласование · ${activeProject.name}` : 'Согласование отчётов'}
-              </h2>
+              <div>
+                <h2 className="section-title mb-0">Согласование отчётов</h2>
+                <div className="section-subtitle">
+                  {activeProject
+                    ? `Активный проект: ${activeProject.name}`
+                    : 'Выберите активный проект для очереди согласования'}
+                </div>
+              </div>
 
               {activeProjectId != null ? (
                 <>

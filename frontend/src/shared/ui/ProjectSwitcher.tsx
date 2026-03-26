@@ -31,7 +31,7 @@ export function ProjectSwitcher() {
         <option value="">Проект не выбран</option>
         {visibleProjects.map((project) => (
           <option key={project.id} value={project.id}>
-            {project.name} ({project.code})
+            {project.name}
           </option>
         ))}
       </Form.Select>

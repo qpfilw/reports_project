@@ -71,6 +71,51 @@ export default function ProjectsPage() {
     });
   }, [projects, search, isArchivedVisible]);
 
+
+  const handleToggleArchive = async (project: Project) => {
+    if (!user) {
+      setError('Пользователь не авторизован.');
+      return;
+    }
+
+    const canManageProject = user.role.code === 'admin' || user.id === project.owner_id;
+
+    if (!canManageProject) {
+      setError('Архивировать проект может только владелец или администратор.');
+      return;
+    }
+
+    const nextArchivedState = !project.is_archived;
+    const actionLabel = nextArchivedState ? 'архивировать' : 'восстановить';
+
+    if (!window.confirm(`Подтвердить действие: ${actionLabel} проект "${project.name}"?`)) {
+      return;
+    }
+
+    try {
+      setError('');
+      setSuccessMessage('');
+
+      const updatedProject = await projectsApi.update(project.id, {
+        is_archived: nextArchivedState,
+      });
+
+      setProjects((prev) =>
+        prev.map((item) => (item.id === updatedProject.id ? updatedProject : item)),
+      );
+
+      await reloadProjects();
+
+      setSuccessMessage(
+        nextArchivedState
+          ? `Проект "${project.name}" перенесён в архив.`
+          : `Проект "${project.name}" восстановлен из архива.`,
+      );
+    } catch {
+      setError('Не удалось изменить статус проекта.');
+    }
+  };
+
   const handleCreateProject = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setError('');
@@ -155,7 +200,7 @@ export default function ProjectsPage() {
         ) : null}
 
         {!isLoading && error ? <Alert variant="danger">{error}</Alert> : null}
-        {!isLoading && successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
+        {!isLoading && successMessage ? <Alert variant="success" className="app-soft-alert app-soft-alert-success">{successMessage}</Alert> : null}
 
         {!isLoading && !error ? (
           <div className="table-wrap">
@@ -200,13 +245,25 @@ export default function ProjectsPage() {
                         </span>
                       </td>
                       <td onClick={(event) => event.stopPropagation()}>
-                        <Button
-                          size="sm"
-                          className="primary-pill-button projects-open-button"
-                          onClick={() => navigate(`/projects/${project.id}`)}
-                        >
-                          Открыть
-                        </Button>
+                        <div className="table-action-center table-action-stack">
+                          <Button
+                            size="sm"
+                            className="primary-pill-button projects-open-button"
+                            onClick={() => navigate(`/projects/${project.id}`)}
+                          >
+                            Открыть
+                          </Button>
+
+                          {user?.role.code === 'admin' || user?.id === project.owner_id ? (
+                            <Button
+                              size="sm"
+                              className="secondary-pill-button projects-archive-button"
+                              onClick={() => void handleToggleArchive(project)}
+                            >
+                              {project.is_archived ? 'Восстановить' : 'Архивировать'}
+                            </Button>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   ))
