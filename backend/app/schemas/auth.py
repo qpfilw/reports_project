@@ -35,3 +35,10 @@ class RegisterRequest(BaseSchema):
 class AuthResponse(BaseSchema):
     user: UserDetailRead
     tokens: TokenPair
+    
+
+class UpdateMeRequest(BaseSchema):
+    email: str | None = Field(None, min_length=5, max_length=255)
+    full_name: str | None = Field(None, min_length=2, max_length=255)
+    position: str | None = Field(None, max_length=150)
+    department: str | None = Field(None, max_length=150)

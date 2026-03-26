@@ -17,6 +17,7 @@ import {
   getReportStatusClassName,
   getReportStatusLabel,
 } from '../../shared/lib/reportStatus';
+import { readUserSettings } from '../../shared/lib/userSettings';
 import type { ExportArtifactDetail, ExportFormat } from '../../shared/types/export';
 import type { ProcessingTaskDetail } from '../../shared/types/processing';
 import {
@@ -130,6 +131,7 @@ export default function ReportResultPage() {
   const { reportId } = useParams<{ reportId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const settings = readUserSettings();
 
   const numericReportId = Number(reportId);
 
@@ -213,6 +215,14 @@ export default function ReportResultPage() {
         (member.member_role === 'owner' || member.member_role === 'manager'),
     );
   }, [projectMembers]);
+
+  const exportFormats = useMemo<ExportFormat[]>(() => {
+    const formats: ExportFormat[] = ['csv', 'xlsx', 'pdf'];
+    return [
+      settings.defaultExportFormat,
+      ...formats.filter((format) => format !== settings.defaultExportFormat),
+    ];
+  }, [settings.defaultExportFormat]);
 
   const loadPageData = useCallback(async () => {
     if (!reportId || Number.isNaN(numericReportId)) {
@@ -721,27 +731,21 @@ export default function ReportResultPage() {
               </div>
 
               <div className="result-export-actions">
-                <Button
-                  className="secondary-pill-button"
-                  disabled={isExportLoading || !taskDetail}
-                  onClick={() => handleRunExport('csv')}
-                >
-                  CSV
-                </Button>
-                <Button
-                  className="secondary-pill-button"
-                  disabled={isExportLoading || !taskDetail}
-                  onClick={() => handleRunExport('xlsx')}
-                >
-                  XLSX
-                </Button>
-                <Button
-                  className="secondary-pill-button"
-                  disabled={isExportLoading || !taskDetail}
-                  onClick={() => handleRunExport('pdf')}
-                >
-                  PDF
-                </Button>
+                {exportFormats.map((format) => (
+                  <Button
+                    key={format}
+                    className={
+                      format === settings.defaultExportFormat
+                        ? 'primary-pill-button'
+                        : 'secondary-pill-button'
+                    }
+                    disabled={isExportLoading || !taskDetail}
+                    onClick={() => handleRunExport(format)}
+                  >
+                    {format.toUpperCase()}
+                    {format === settings.defaultExportFormat ? ' · по умолчанию' : ''}
+                  </Button>
+                ))}
               </div>
             </div>
 

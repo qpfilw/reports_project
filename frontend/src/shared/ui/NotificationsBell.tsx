@@ -7,6 +7,7 @@ import {
   getNotificationTargetUrl,
   getNotificationTypeClassName,
 } from '../lib/notificationLabels';
+import { readUserSettings } from '../lib/userSettings';
 import type { NotificationItem } from '../types/notification';
 import bellIcon from '../../assets/icons/notification.png';
 
@@ -18,6 +19,7 @@ function formatDateTime(value?: string | null) {
 
 export function NotificationsBell() {
   const navigate = useNavigate();
+  const settings = readUserSettings();
 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -41,6 +43,12 @@ export function NotificationsBell() {
 
     void load();
 
+    if (!settings.autoRefresh) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
     const interval = window.setInterval(() => {
       void load();
     }, 20000);
@@ -49,19 +57,19 @@ export function NotificationsBell() {
       isMounted = false;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [settings.autoRefresh]);
 
   const unreadCount = useMemo(() => {
     return notifications.filter((item) => !item.is_read).length;
   }, [notifications]);
 
   const latestNotifications = useMemo(() => {
-    return notifications.slice(0, 6);
-  }, [notifications]);
+    return notifications.slice(0, settings.tablePageSize);
+  }, [notifications, settings.tablePageSize]);
 
   const handleOpenNotification = async (notification: NotificationItem) => {
     try {
-      if (!notification.is_read) {
+      if (settings.autoMarkNotificationsRead && !notification.is_read) {
         const updated = await notificationsApi.markRead(notification.id);
         setNotifications((prev) =>
           prev.map((item) => (item.id === updated.id ? updated : item)),

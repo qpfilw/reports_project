@@ -18,6 +18,7 @@ import { exportsApi } from '../../shared/api/exports';
 import { reportsApi } from '../../shared/api/reports';
 import { resultsApi } from '../../shared/api/results';
 import { getReportStatusLabel, reportStatusOptions } from '../../shared/lib/reportStatus';
+import { readUserSettings } from '../../shared/lib/userSettings';
 import type {
   AnalyticsOverview,
   CreateDashboardPayload,
@@ -69,6 +70,32 @@ const initialDashboardForm: DashboardFormState = {
   widgets: DEFAULT_WIDGETS,
 };
 
+const PERIOD_DAY_MAP = {
+  '30d': 30,
+  '90d': 90,
+  '180d': 180,
+  '365d': 365,
+} as const;
+
+function getDefaultWidgetsForView(view: 'overviewMetrics' | 'statusDistribution' | 'periodDynamics') {
+  switch (view) {
+    case 'statusDistribution':
+      return ['overviewMetrics', 'statusDistribution', 'latestResults'] satisfies DashboardWidgetKey[];
+    case 'periodDynamics':
+      return ['overviewMetrics', 'periodDynamics', 'latestResults'] satisfies DashboardWidgetKey[];
+    case 'overviewMetrics':
+    default:
+      return DEFAULT_WIDGETS;
+  }
+}
+
+function resolvePeriodCutoff(period: '30d' | '90d' | '180d' | '365d') {
+  const cutoff = new Date();
+  cutoff.setHours(0, 0, 0, 0);
+  cutoff.setDate(cutoff.getDate() - PERIOD_DAY_MAP[period]);
+  return cutoff;
+}
+
 function formatDateTime(value?: string | null) {
   if (!value) return '—';
   const date = new Date(value);
@@ -106,6 +133,12 @@ export default function AnalyticsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { activeProjectId, activeProject } = useProjectContext();
+  const settings = readUserSettings();
+
+  const analyticsScopedToActiveProject = settings.analyticsOnlyActiveProject;
+  const effectiveProjectId = analyticsScopedToActiveProject ? activeProjectId : null;
+  const defaultWidgetKeys = getDefaultWidgetsForView(settings.analyticsDefaultView);
+  const periodCutoff = resolvePeriodCutoff(settings.analyticsDefaultPeriod);
 
   const [reports, setReports] = useState<Report[]>([]);
   const [results, setResults] = useState<NormalizedDataset[]>([]);
@@ -114,7 +147,7 @@ export default function AnalyticsPage() {
   const [dashboards, setDashboards] = useState<Dashboard[]>([]);
 
   const [statusFilter, setStatusFilter] = useState('all');
-  const [activeWidgetKeys, setActiveWidgetKeys] = useState<DashboardWidgetKey[]>(DEFAULT_WIDGETS);
+  const [activeWidgetKeys, setActiveWidgetKeys] = useState<DashboardWidgetKey[]>(defaultWidgetKeys);
   const [appliedDashboardId, setAppliedDashboardId] = useState<number | null>(null);
 
   const [showDashboardModal, setShowDashboardModal] = useState(false);
@@ -133,9 +166,11 @@ export default function AnalyticsPage() {
   const [dashboardError, setDashboardError] = useState('');
 
   const canManageDashboards = user?.role.code === 'admin' || user?.role.code === 'manager';
+  const shouldShowSavedDashboards =
+    canManageDashboards && settings.analyticsShowSavedDashboards && activeProjectId != null;
 
   const dashboardStorageKey =
-    activeProjectId != null ? `analytics-active-dashboard:${activeProjectId}` : null;
+    shouldShowSavedDashboards ? `analytics-active-dashboard:${activeProjectId}` : null;
 
   const loadCoreAnalytics = async () => {
     const [reportsData, resultsData, exportsData] = await Promise.all([
@@ -190,12 +225,17 @@ export default function AnalyticsPage() {
   }, [canManageDashboards]);
 
   const projectReports = useMemo(() => {
-    if (activeProjectId == null) {
-      return [];
+    const periodFilteredReports = reports.filter((report) => {
+      const referenceDate = new Date(report.report_period_end || report.created_at);
+      return !Number.isNaN(referenceDate.getTime()) && referenceDate >= periodCutoff;
+    });
+
+    if (effectiveProjectId == null) {
+      return periodFilteredReports;
     }
 
-    return reports.filter((report) => report.project_id === activeProjectId);
-  }, [reports, activeProjectId]);
+    return periodFilteredReports.filter((report) => report.project_id === effectiveProjectId);
+  }, [reports, effectiveProjectId, periodCutoff]);
 
   const filteredReports = useMemo(() => {
     if (statusFilter === 'all') {
@@ -220,12 +260,12 @@ export default function AnalyticsPage() {
   }, [exports, filteredReportIds]);
 
   const projectDashboards = useMemo(() => {
-    if (activeProjectId == null) {
+    if (!shouldShowSavedDashboards || activeProjectId == null) {
       return [];
     }
 
     return dashboards.filter((dashboard) => dashboard.project_id === activeProjectId);
-  }, [dashboards, activeProjectId]);
+  }, [dashboards, activeProjectId, shouldShowSavedDashboards]);
 
   const totalRows = useMemo(() => {
     return filteredResults.reduce((acc, item) => acc + item.rows_count, 0);
@@ -332,8 +372,8 @@ export default function AnalyticsPage() {
   const latestResults = useMemo(() => {
     return [...filteredResults]
       .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-      .slice(0, 8);
-  }, [filteredResults]);
+      .slice(0, settings.tablePageSize);
+  }, [filteredResults, settings.tablePageSize]);
 
   const activeDashboard = useMemo(() => {
     if (appliedDashboardId == null) {
@@ -389,7 +429,7 @@ export default function AnalyticsPage() {
 
   const resetDashboardBuilder = () => {
     setEditingDashboard(null);
-    setDashboardForm(initialDashboardForm);
+    setDashboardForm({ ...initialDashboardForm, widgets: defaultWidgetKeys });
     setShowDashboardModal(false);
   };
 
@@ -397,7 +437,7 @@ export default function AnalyticsPage() {
     setEditingDashboard(null);
     setDashboardForm({
       ...initialDashboardForm,
-      widgets: activeWidgetKeys.length > 0 ? activeWidgetKeys : DEFAULT_WIDGETS,
+      widgets: activeWidgetKeys.length > 0 ? activeWidgetKeys : defaultWidgetKeys,
     });
     setDashboardError('');
     setShowDashboardModal(true);
@@ -431,7 +471,7 @@ export default function AnalyticsPage() {
     setAppliedDashboardId(dashboard.id);
 
     const nextWidgets = extractWidgetKeys(dashboard.config_json);
-    setActiveWidgetKeys(nextWidgets.length > 0 ? nextWidgets : DEFAULT_WIDGETS);
+    setActiveWidgetKeys(nextWidgets.length > 0 ? nextWidgets : defaultWidgetKeys);
 
     const savedStatusFilter = getDashboardSavedStatusFilter(dashboard);
     setStatusFilter(savedStatusFilter);
@@ -443,7 +483,7 @@ export default function AnalyticsPage() {
 
   const clearAppliedDashboard = () => {
     setAppliedDashboardId(null);
-    setActiveWidgetKeys(DEFAULT_WIDGETS);
+    setActiveWidgetKeys(defaultWidgetKeys);
     setStatusFilter('all');
 
     if (dashboardStorageKey) {
@@ -452,16 +492,16 @@ export default function AnalyticsPage() {
   };
 
   useEffect(() => {
-    if (activeProjectId == null) {
+    if (!shouldShowSavedDashboards || activeProjectId == null) {
       setAppliedDashboardId(null);
-      setActiveWidgetKeys(DEFAULT_WIDGETS);
+      setActiveWidgetKeys(defaultWidgetKeys);
       setStatusFilter('all');
       return;
     }
 
     if (projectDashboards.length === 0) {
       setAppliedDashboardId(null);
-      setActiveWidgetKeys(DEFAULT_WIDGETS);
+      setActiveWidgetKeys(defaultWidgetKeys);
       setStatusFilter('all');
       return;
     }
@@ -481,20 +521,26 @@ export default function AnalyticsPage() {
 
     if (!targetDashboard) {
       setAppliedDashboardId(null);
-      setActiveWidgetKeys(DEFAULT_WIDGETS);
+      setActiveWidgetKeys(defaultWidgetKeys);
       setStatusFilter('all');
       return;
     }
 
     const nextWidgets = extractWidgetKeys(targetDashboard.config_json);
     setAppliedDashboardId(targetDashboard.id);
-    setActiveWidgetKeys(nextWidgets.length > 0 ? nextWidgets : DEFAULT_WIDGETS);
+    setActiveWidgetKeys(nextWidgets.length > 0 ? nextWidgets : defaultWidgetKeys);
     setStatusFilter(getDashboardSavedStatusFilter(targetDashboard));
 
     if (dashboardStorageKey) {
       localStorage.setItem(dashboardStorageKey, String(targetDashboard.id));
     }
-  }, [activeProjectId, projectDashboards, dashboardStorageKey]);
+  }, [
+    activeProjectId,
+    dashboardStorageKey,
+    defaultWidgetKeys,
+    projectDashboards,
+    shouldShowSavedDashboards,
+  ]);
 
   const handleSaveDashboard = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -607,7 +653,7 @@ export default function AnalyticsPage() {
 
       if (appliedDashboardId === deletingDashboard.id) {
         setAppliedDashboardId(null);
-        setActiveWidgetKeys(DEFAULT_WIDGETS);
+        setActiveWidgetKeys(defaultWidgetKeys);
         setStatusFilter('all');
 
         if (dashboardStorageKey) {
@@ -629,13 +675,15 @@ export default function AnalyticsPage() {
     <>
       <ContentCard
         header={
-          <div className="toolbar-row">
+        <div className="toolbar-row">
             <div className="toolbar-left">
               <h2 className="section-title mb-0">
-                {activeProject ? `Аналитика · ${activeProject.name}` : 'Аналитика'}
+                {analyticsScopedToActiveProject && activeProject
+                  ? `Аналитика · ${activeProject.name}`
+                  : 'Аналитика'}
               </h2>
 
-              {activeProjectId != null ? (
+              {effectiveProjectId != null || !analyticsScopedToActiveProject ? (
                 <Form.Select
                   className="soft-select"
                   value={statusFilter}
@@ -660,10 +708,14 @@ export default function AnalyticsPage() {
               <Button
                 className="primary-pill-button"
                 onClick={() =>
-                  activeProjectId == null ? navigate('/projects') : navigate('/reports')
+                  analyticsScopedToActiveProject && activeProjectId == null
+                    ? navigate('/projects')
+                    : navigate('/reports')
                 }
               >
-                {activeProjectId == null ? 'Выбрать проект' : 'К отчётам'}
+                {analyticsScopedToActiveProject && activeProjectId == null
+                  ? 'Выбрать проект'
+                  : 'К отчётам'}
               </Button>
             </div>
           </div>
@@ -679,7 +731,7 @@ export default function AnalyticsPage() {
         {!isLoading && successMessage ? <Alert variant="success">{successMessage}</Alert> : null}
         {!isLoading && dashboardError ? <Alert variant="warning">{dashboardError}</Alert> : null}
 
-        {!isLoading && !error && activeProjectId == null ? (
+        {!isLoading && !error && analyticsScopedToActiveProject && activeProjectId == null ? (
           <div className="page-empty-state">
             <div className="page-empty-state-title">Сначала выбери проект</div>
             <div className="page-empty-state-text">
@@ -691,7 +743,7 @@ export default function AnalyticsPage() {
           </div>
         ) : null}
 
-        {!isLoading && !error && activeProjectId != null ? (
+        {!isLoading && !error && (!analyticsScopedToActiveProject || activeProjectId != null) ? (
           <>
             {activeDashboard ? (
               <div className="dashboard-applied-banner">
@@ -838,7 +890,7 @@ export default function AnalyticsPage() {
               </div>
             ) : null}
 
-            {canManageDashboards ? (
+            {shouldShowSavedDashboards ? (
               <div className="analytics-card">
                 <div className="analytics-card-title">Сохранённые дашборды</div>
 

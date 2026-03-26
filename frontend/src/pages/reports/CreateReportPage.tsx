@@ -6,6 +6,7 @@ import { useProjectContext } from '../../features/projects/ProjectContext';
 import { mlApi } from '../../shared/api/ml';
 import { reportTypesApi } from '../../shared/api/reportTypes';
 import { reportsApi } from '../../shared/api/reports';
+import { readUserSettings, saveLastMlTemplateId } from '../../shared/lib/userSettings';
 import type { ReportType } from '../../shared/types/report-type';
 import type { MlTemplate } from '../../shared/types/template';
 import { ContentCard } from '../../shared/ui/ContentCard';
@@ -32,8 +33,9 @@ const initialForm: CreateReportFormState = {
 
 export default function CreateReportPage() {
   const { user } = useAuth();
-  const { activeProjectId, activeProject, projects } = useProjectContext();
+  const { activeProjectId, projects } = useProjectContext();
   const navigate = useNavigate();
+  const settings = readUserSettings();
 
   const [form, setForm] = useState<CreateReportFormState>(initialForm);
   const [reportTypes, setReportTypes] = useState<ReportType[]>([]);
@@ -83,13 +85,34 @@ export default function CreateReportPage() {
         setIsTemplatesLoading(true);
         const templatesData = await mlApi.listTemplates(Number(form.report_type_id));
         setTemplates(templatesData);
+
+        if (!settings.rememberLastMlTemplate) {
+          return;
+        }
+
+        const rememberedTemplateId = settings.lastMlTemplateId;
+
+        if (!rememberedTemplateId) {
+          return;
+        }
+
+        const matchingTemplate = templatesData.find(
+          (template) => String(template.id) === rememberedTemplateId,
+        );
+
+        if (matchingTemplate) {
+          setForm((prev) => ({
+            ...prev,
+            ml_template_id: prev.ml_template_id || rememberedTemplateId,
+          }));
+        }
       } catch {
         setTemplates([]);
       } finally {
         setIsTemplatesLoading(false);
       }
     })();
-  }, [form.report_type_id]);
+  }, [form.report_type_id, settings.lastMlTemplateId, settings.rememberLastMlTemplate]);
 
   const selectedProject = useMemo(
     () => projects.find((item) => item.id === Number(form.project_id)) ?? null,
@@ -157,6 +180,12 @@ export default function CreateReportPage() {
         creator_id: user!.id,
         ml_template_id: form.ml_template_id ? Number(form.ml_template_id) : null,
       });
+
+      if (settings.rememberLastMlTemplate) {
+        saveLastMlTemplateId(form.ml_template_id || null);
+      } else {
+        saveLastMlTemplateId(null);
+      }
 
       setSuccessMessage(`Отчет №${createdReport.id} успешно создан.`);
       setTimeout(() => {

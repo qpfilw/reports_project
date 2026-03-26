@@ -44,3 +44,15 @@ export interface AuthResponse {
   user: User;
   tokens: TokenPair;
 }
+
+export interface UpdateMeRequest {
+  email?: string;
+  full_name?: string;
+  position?: string | null;
+  department?: string | null;
+}
+
+export interface ChangePasswordRequest {
+  current_password: string;
+  new_password: string;
+}

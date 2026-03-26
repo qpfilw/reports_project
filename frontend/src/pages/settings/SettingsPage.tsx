@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Alert, Button, Col, Form, Row } from 'react-bootstrap';
+import { useEffect, useState } from 'react';
+import { Alert, Button, Form } from 'react-bootstrap';
+import { storage } from '../../shared/lib/storage';
+import { saveLastMlTemplateId } from '../../shared/lib/userSettings';
 import { ContentCard } from '../../shared/ui/ContentCard';
 import type { ExportFormat } from '../../shared/types/export';
 
@@ -22,8 +24,15 @@ const STORAGE_KEYS = {
 } as const;
 
 type AnalyticsDefaultView = 'overviewMetrics' | 'statusDistribution' | 'periodDynamics';
-type AnalyticsDefaultPeriod = '30 дней' | '90 дней' | '180 дней' | '365 дней';
+type AnalyticsDefaultPeriod = '30d' | '90d' | '180d' | '365d';
 type ProcessingPriority = '1' | '3' | '5';
+
+const ANALYTICS_PERIOD_LABELS: Record<AnalyticsDefaultPeriod, string> = {
+  '30d': '30 дней',
+  '90d': '90 дней',
+  '180d': '180 дней',
+  '365d': '365 дней',
+};
 
 interface SettingsState {
   compactMode: boolean;
@@ -48,7 +57,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   autoRefresh: true,
   showRussianDates: true,
   tablePageSize: 10,
-  analyticsDefaultPeriod: '90 дней',
+  analyticsDefaultPeriod: '90d',
   analyticsDefaultView: 'overviewMetrics',
   analyticsOnlyActiveProject: true,
   analyticsShowSavedDashboards: true,
@@ -112,6 +121,14 @@ function persistSettings(settings: SettingsState) {
   );
   localStorage.setItem(STORAGE_KEYS.projectScopedBadges, String(settings.projectScopedBadges));
   localStorage.setItem(STORAGE_KEYS.rememberActiveProject, String(settings.rememberActiveProject));
+
+  if (!settings.rememberActiveProject) {
+    storage.removeActiveProject();
+  }
+
+  if (!settings.rememberLastMlTemplate) {
+    saveLastMlTemplateId(null);
+  }
 }
 
 function removeAllStoredSettings() {
@@ -120,7 +137,6 @@ function removeAllStoredSettings() {
 
 export default function SettingsPage() {
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
-  const [isLoaded, setIsLoaded] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
 
@@ -192,71 +208,8 @@ export default function SettingsPage() {
       setSettings(loaded);
     } catch {
       setError('Не удалось прочитать сохранённые настройки.');
-    } finally {
-      setIsLoaded(true);
     }
   }, []);
-
-  const hasUnsavedChanges = useMemo(() => {
-    if (!isLoaded) return false;
-
-    const current = JSON.stringify(settings);
-    const baseline: SettingsState = {
-      compactMode: readBoolean(STORAGE_KEYS.compactMode, DEFAULT_SETTINGS.compactMode),
-      autoRefresh: readBoolean(STORAGE_KEYS.autoRefresh, DEFAULT_SETTINGS.autoRefresh),
-      showRussianDates: readBoolean(
-        STORAGE_KEYS.showRussianDates,
-        DEFAULT_SETTINGS.showRussianDates,
-      ),
-      tablePageSize: readNumber(STORAGE_KEYS.tablePageSize, DEFAULT_SETTINGS.tablePageSize),
-      analyticsDefaultPeriod: readString<AnalyticsDefaultPeriod>(
-        STORAGE_KEYS.analyticsDefaultPeriod,
-        DEFAULT_SETTINGS.analyticsDefaultPeriod,
-      ),
-      analyticsDefaultView: readString<AnalyticsDefaultView>(
-        STORAGE_KEYS.analyticsDefaultView,
-        DEFAULT_SETTINGS.analyticsDefaultView,
-      ),
-      analyticsOnlyActiveProject: readBoolean(
-        STORAGE_KEYS.analyticsOnlyActiveProject,
-        DEFAULT_SETTINGS.analyticsOnlyActiveProject,
-      ),
-      analyticsShowSavedDashboards: readBoolean(
-        STORAGE_KEYS.analyticsShowSavedDashboards,
-        DEFAULT_SETTINGS.analyticsShowSavedDashboards,
-      ),
-      defaultExportFormat: readString<ExportFormat>(
-        STORAGE_KEYS.defaultExportFormat,
-        DEFAULT_SETTINGS.defaultExportFormat,
-      ),
-      defaultProcessingPriority: readString<ProcessingPriority>(
-        STORAGE_KEYS.defaultProcessingPriority,
-        DEFAULT_SETTINGS.defaultProcessingPriority,
-      ),
-      rememberLastMlTemplate: readBoolean(
-        STORAGE_KEYS.rememberLastMlTemplate,
-        DEFAULT_SETTINGS.rememberLastMlTemplate,
-      ),
-      notificationsUnreadOnly: readBoolean(
-        STORAGE_KEYS.notificationsUnreadOnly,
-        DEFAULT_SETTINGS.notificationsUnreadOnly,
-      ),
-      autoMarkNotificationsRead: readBoolean(
-        STORAGE_KEYS.autoMarkNotificationsRead,
-        DEFAULT_SETTINGS.autoMarkNotificationsRead,
-      ),
-      projectScopedBadges: readBoolean(
-        STORAGE_KEYS.projectScopedBadges,
-        DEFAULT_SETTINGS.projectScopedBadges,
-      ),
-      rememberActiveProject: readBoolean(
-        STORAGE_KEYS.rememberActiveProject,
-        DEFAULT_SETTINGS.rememberActiveProject,
-      ),
-    };
-
-    return current !== JSON.stringify(baseline);
-  }, [settings, isLoaded]);
 
   const updateSetting = <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
@@ -311,14 +264,6 @@ export default function SettingsPage() {
             <div className="settings-option-list">
               <Form.Check
                 type="switch"
-                id="compact-mode"
-                label="Компактный режим интерфейса"
-                checked={settings.compactMode}
-                onChange={(event) => updateSetting('compactMode', event.target.checked)}
-              />
-
-              <Form.Check
-                type="switch"
                 id="auto-refresh"
                 label="Автообновление статусов и уведомлений"
                 checked={settings.autoRefresh}
@@ -327,10 +272,12 @@ export default function SettingsPage() {
 
               <Form.Check
                 type="switch"
-                id="ru-dates"
-                label="Русский формат отображения даты"
-                checked={settings.showRussianDates}
-                onChange={(event) => updateSetting('showRussianDates', event.target.checked)}
+                id="remember-active-project"
+                label="Запоминать активный проект между сессиями"
+                checked={settings.rememberActiveProject}
+                onChange={(event) =>
+                  updateSetting('rememberActiveProject', event.target.checked)
+                }
               />
 
               <Form.Group>
@@ -488,16 +435,6 @@ export default function SettingsPage() {
                   updateSetting('autoMarkNotificationsRead', event.target.checked)
                 }
               />
-
-              <Form.Check
-                type="switch"
-                id="project-scoped-badges"
-                label="Показывать badge уведомлений только для текущего проекта"
-                checked={settings.projectScopedBadges}
-                onChange={(event) =>
-                  updateSetting('projectScopedBadges', event.target.checked)
-                }
-              />
             </div>
           </div>
           <div className="form-meta-card">
@@ -510,7 +447,7 @@ export default function SettingsPage() {
               </div>
               <div className="settings-summary-item">
                 <span>Период аналитики</span>
-                <strong>{settings.analyticsDefaultPeriod}</strong>
+                <strong>{ANALYTICS_PERIOD_LABELS[settings.analyticsDefaultPeriod]}</strong>
               </div>
               <div className="settings-summary-item">
                 <span>Экспорт</span>

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { mlApi } from '../../shared/api/ml';
 import { processingApi } from '../../shared/api/processing';
 import { tasksApi } from '../../shared/api/tasks';
+import { readUserSettings } from '../../shared/lib/userSettings';
 import type { MlPipelineResult } from '../../shared/types/ml-pipeline';
 import type {
   ProcessingTaskDetail,
@@ -41,6 +42,7 @@ const POLLABLE_STATUSES = new Set(['queued', 'running', 'retry']);
 export default function TaskDetailsPage() {
   const { taskId } = useParams<{ taskId: string }>();
   const navigate = useNavigate();
+  const settings = readUserSettings();
   const numericTaskId = Number(taskId);
 
   const [task, setTask] = useState<ProcessingTaskDetail | null>(null);
@@ -85,7 +87,7 @@ export default function TaskDetailsPage() {
   }, [numericTaskId]);
 
   useEffect(() => {
-    if (!progress || !POLLABLE_STATUSES.has(progress.status)) {
+    if (!settings.autoRefresh || !progress || !POLLABLE_STATUSES.has(progress.status)) {
       return;
     }
 
@@ -113,7 +115,7 @@ export default function TaskDetailsPage() {
     }, 3000);
 
     return () => window.clearInterval(interval);
-  }, [numericTaskId, progress]);
+  }, [numericTaskId, progress, settings.autoRefresh]);
 
   const canRetry = useMemo(() => {
     return progress?.status === 'failed';

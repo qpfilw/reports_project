@@ -24,6 +24,7 @@ from app.schemas.auth import (
     RefreshTokenRequest,
     RegisterRequest,
     TokenPair,
+    UpdateMeRequest,
 )
 from app.schemas.user import UserDetailRead
 
@@ -156,6 +157,39 @@ def refresh_tokens(payload: RefreshTokenRequest, db: Session = Depends(get_db)) 
 def get_me(current_user: User = Depends(get_current_active_user)) -> UserDetailRead:
     return UserDetailRead.model_validate(current_user)
 
+@router.patch("/me", response_model=UserDetailRead)
+def update_me(
+    payload: UpdateMeRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+) -> UserDetailRead:
+    data = payload.model_dump(exclude_unset=True)
+
+    if "email" in data:
+        normalized_email = data["email"].strip().lower()
+        existing = db.scalar(
+            select(User).where(User.email == normalized_email, User.id != current_user.id)
+        )
+        if existing is not None:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Email already exists.",
+            )
+        current_user.email = normalized_email
+
+    if "full_name" in data:
+        current_user.full_name = data["full_name"]
+
+    if "position" in data:
+        current_user.position = data["position"]
+
+    if "department" in data:
+        current_user.department = data["department"]
+
+    db.commit()
+    db.refresh(current_user)
+
+    return UserDetailRead.model_validate(current_user)
 
 @router.post("/change-password")
 def change_password(

@@ -6,6 +6,7 @@ import { mlApi } from '../../shared/api/ml';
 import { processingApi } from '../../shared/api/processing';
 import { reportsApi } from '../../shared/api/reports';
 import { uploadsApi } from '../../shared/api/uploads';
+import { readUserSettings, saveLastMlTemplateId } from '../../shared/lib/userSettings';
 import type { Report } from '../../shared/types/report';
 import type { TemplatePredictionResult } from '../../shared/types/ml-pipeline';
 import type { MlTemplate } from '../../shared/types/template';
@@ -29,6 +30,7 @@ export default function UploadReportPage() {
   const { reportId } = useParams<{ reportId: string }>();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const settings = readUserSettings();
 
   const numericReportId = Number(reportId);
 
@@ -40,7 +42,7 @@ export default function UploadReportPage() {
   const [file, setFile] = useState<File | null>(null);
   const [comment, setComment] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
-  const [priority, setPriority] = useState('5');
+  const [priority, setPriority] = useState<string>(settings.defaultProcessingPriority);
 
   const [createdUploadId, setCreatedUploadId] = useState<number | null>(null);
 
@@ -77,19 +79,33 @@ export default function UploadReportPage() {
 
         setExistingUploads(filteredUploads);
 
-        if (reportData.ml_template_id) {
-          setSelectedTemplateId(String(reportData.ml_template_id));
-        }
-
         const templatesData = await mlApi.listTemplates(reportData.report_type_id);
         setTemplates(templatesData);
+
+        const rememberedTemplateId = settings.rememberLastMlTemplate
+          ? settings.lastMlTemplateId
+          : null;
+
+        const preferredTemplateId = reportData.ml_template_id
+          ? String(reportData.ml_template_id)
+          : rememberedTemplateId;
+
+        if (preferredTemplateId) {
+          const matchingTemplate = templatesData.find(
+            (template) => String(template.id) === preferredTemplateId,
+          );
+
+          if (matchingTemplate) {
+            setSelectedTemplateId(preferredTemplateId);
+          }
+        }
       } catch {
         setError('Не удалось загрузить данные отчета и загрузок.');
       } finally {
         setIsBootLoading(false);
       }
     })();
-  }, [reportId, numericReportId]);
+  }, [reportId, numericReportId, settings.lastMlTemplateId, settings.rememberLastMlTemplate]);
 
   const latestUpload = useMemo<ReportUpload | null>(() => {
     return existingUploads.find((item) => item.is_latest) ?? existingUploads[0] ?? null;
@@ -175,6 +191,12 @@ export default function UploadReportPage() {
         priority: Number(priority),
         params_json: {},
       });
+
+      if (settings.rememberLastMlTemplate) {
+        saveLastMlTemplateId(selectedTemplateId || null);
+      } else {
+        saveLastMlTemplateId(null);
+      }
 
       navigate(`/tasks/${task.id}`);
     } catch {

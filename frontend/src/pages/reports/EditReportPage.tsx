@@ -7,6 +7,7 @@ import { processingApi } from '../../shared/api/processing';
 import { projectsApi } from '../../shared/api/projects';
 import { reportTypesApi } from '../../shared/api/reportTypes';
 import { reportsApi } from '../../shared/api/reports';
+import { readUserSettings, saveLastMlTemplateId } from '../../shared/lib/userSettings';
 import type { ProjectMember } from '../../shared/types/project';
 import type { ReportDetail } from '../../shared/types/report';
 import type { ReportType } from '../../shared/types/report-type';
@@ -48,6 +49,7 @@ export default function EditReportPage() {
   const { reportId } = useParams<{ reportId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const settings = readUserSettings();
 
   const numericReportId = Number(reportId);
 
@@ -60,7 +62,9 @@ export default function EditReportPage() {
 
   const [reprocessFile, setReprocessFile] = useState<File | null>(null);
   const [reprocessComment, setReprocessComment] = useState('');
-  const [reprocessPriority, setReprocessPriority] = useState('5');
+  const [reprocessPriority, setReprocessPriority] = useState<string>(
+    settings.defaultProcessingPriority,
+  );
 
   const [isLoading, setIsLoading] = useState(true);
   const [isTemplatesLoading, setIsTemplatesLoading] = useState(false);
@@ -140,13 +144,36 @@ export default function EditReportPage() {
         setIsTemplatesLoading(true);
         const templatesData = await mlApi.listTemplates(Number(form.report_type_id));
         setTemplates(templatesData);
+
+        if (!settings.rememberLastMlTemplate || form.ml_template_id) {
+          return;
+        }
+
+        const rememberedTemplateId = settings.lastMlTemplateId;
+
+        if (!rememberedTemplateId) {
+          return;
+        }
+
+        const matchingTemplate = templatesData.find(
+          (template) => String(template.id) === rememberedTemplateId,
+        );
+
+        if (matchingTemplate) {
+          setForm((prev) => ({ ...prev, ml_template_id: rememberedTemplateId }));
+        }
       } catch {
         setTemplates([]);
       } finally {
         setIsTemplatesLoading(false);
       }
     })();
-  }, [form.report_type_id]);
+  }, [
+    form.ml_template_id,
+    form.report_type_id,
+    settings.lastMlTemplateId,
+    settings.rememberLastMlTemplate,
+  ]);
 
   const updateField = (key: keyof EditReportFormState, value: string) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -207,6 +234,13 @@ export default function EditReportPage() {
     });
 
     setReport(updated);
+
+    if (settings.rememberLastMlTemplate) {
+      saveLastMlTemplateId(updated.ml_template_id ? String(updated.ml_template_id) : null);
+    } else {
+      saveLastMlTemplateId(null);
+    }
+
     return updated;
   };
 

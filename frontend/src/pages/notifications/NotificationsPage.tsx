@@ -8,6 +8,7 @@ import {
   getNotificationTargetUrl,
   getNotificationTypeClassName,
 } from '../../shared/lib/notificationLabels';
+import { readUserSettings } from '../../shared/lib/userSettings';
 import type { NotificationItem } from '../../shared/types/notification';
 import { ContentCard } from '../../shared/ui/ContentCard';
 
@@ -19,27 +20,59 @@ function formatDateTime(value?: string | null) {
 
 export default function NotificationsPage() {
   const navigate = useNavigate();
+  const settings = readUserSettings();
 
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isActionLoading, setIsActionLoading] = useState(false);
-  const [filter, setFilter] = useState<'all' | 'unread' | 'read'>('all');
+  const [filter, setFilter] = useState<'all' | 'unread' | 'read'>(
+    settings.notificationsUnreadOnly ? 'unread' : 'all',
+  );
   const [error, setError] = useState('');
 
   useEffect(() => {
-    (async () => {
+    let isMounted = true;
+
+    const load = async () => {
       try {
-        setIsLoading(true);
-        setError('');
+        if (isMounted) {
+          setIsLoading(true);
+          setError('');
+        }
+
         const data = await notificationsApi.list();
-        setNotifications(data);
+
+        if (isMounted) {
+          setNotifications(data);
+        }
       } catch {
-        setError('Не удалось загрузить уведомления.');
+        if (isMounted) {
+          setError('Не удалось загрузить уведомления.');
+        }
       } finally {
-        setIsLoading(false);
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
-    })();
-  }, []);
+    };
+
+    void load();
+
+    if (!settings.autoRefresh) {
+      return () => {
+        isMounted = false;
+      };
+    }
+
+    const interval = window.setInterval(() => {
+      void load();
+    }, 20000);
+
+    return () => {
+      isMounted = false;
+      window.clearInterval(interval);
+    };
+  }, [settings.autoRefresh]);
 
   const filteredNotifications = useMemo(() => {
     if (filter === 'unread') {
@@ -53,9 +86,13 @@ export default function NotificationsPage() {
     return notifications;
   }, [notifications, filter]);
 
+  const visibleNotifications = useMemo(() => {
+    return filteredNotifications.slice(0, settings.tablePageSize);
+  }, [filteredNotifications, settings.tablePageSize]);
+
   const handleOpen = async (notification: NotificationItem) => {
     try {
-      if (!notification.is_read) {
+      if (settings.autoMarkNotificationsRead && !notification.is_read) {
         const updated = await notificationsApi.markRead(notification.id);
         setNotifications((prev) =>
           prev.map((item) => (item.id === updated.id ? updated : item)),
@@ -155,14 +192,14 @@ export default function NotificationsPage() {
               </tr>
             </thead>
             <tbody>
-              {filteredNotifications.length === 0 ? (
+              {visibleNotifications.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="text-center py-4">
                     Уведомления не найдены
                   </td>
                 </tr>
               ) : (
-                filteredNotifications.map((notification) => (
+                visibleNotifications.map((notification) => (
                   <tr
                     key={notification.id}
                     className={`table-row-clickable ${notification.is_read ? '' : 'notification-table-row-unread'}`}

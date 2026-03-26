@@ -9,6 +9,7 @@ import {
   getReportStatusLabel,
   reportStatusOptions,
 } from '../../shared/lib/reportStatus';
+import { readUserSettings } from '../../shared/lib/userSettings';
 import type { Report } from '../../shared/types/report';
 import { ContentCard } from '../../shared/ui/ContentCard';
 
@@ -28,6 +29,7 @@ export default function ReportsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { activeProjectId, activeProject } = useProjectContext();
+  const settings = readUserSettings();
 
   const [reports, setReports] = useState<Report[]>([]);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -80,6 +82,10 @@ export default function ReportsPage() {
     return projectReports.filter((report) => report.status === statusFilter);
   }, [projectReports, statusFilter]);
 
+  const visibleReports = useMemo(() => {
+    return filteredReports.slice(0, settings.tablePageSize);
+  }, [filteredReports, settings.tablePageSize]);
+
   const selectedReports = useMemo(
     () => reports.filter((report) => selectedIds.includes(report.id)),
     [reports, selectedIds],
@@ -106,7 +112,7 @@ export default function ReportsPage() {
       return;
     }
 
-    const visibleIds = filteredReports.map((report) => report.id);
+    const visibleIds = visibleReports.map((report) => report.id);
     const allSelected = visibleIds.every((id) => selectedIds.includes(id));
 
     setSelectedIds((prev) => {
@@ -234,8 +240,8 @@ export default function ReportsPage() {
                     <th className="checkbox-col">
                       <Form.Check
                         checked={
-                          filteredReports.length > 0 &&
-                          filteredReports.every((report) => selectedIds.includes(report.id))
+                          visibleReports.length > 0 &&
+                          visibleReports.every((report) => selectedIds.includes(report.id))
                         }
                         onChange={toggleAll}
                       />
@@ -250,14 +256,14 @@ export default function ReportsPage() {
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredReports.length === 0 ? (
+                  {visibleReports.length === 0 ? (
                     <tr>
                       <td colSpan={8} className="text-center py-4">
                         Отчеты в выбранном проекте не найдены
                       </td>
                     </tr>
                   ) : (
-                    filteredReports.map((report) => (
+                    visibleReports.map((report) => (
                       <tr
                         key={report.id}
                         className="table-row-clickable"

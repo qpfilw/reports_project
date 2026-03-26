@@ -10,6 +10,7 @@ import {
 import { useAuth } from '../auth/AuthProvider';
 import { projectsApi } from '../../shared/api/projects';
 import { storage } from '../../shared/lib/storage';
+import { readUserSettings } from '../../shared/lib/userSettings';
 import type { Project } from '../../shared/types/project';
 
 interface ProjectContextValue {
@@ -25,10 +26,17 @@ interface ProjectContextValue {
 const ProjectContext = createContext<ProjectContextValue | null>(null);
 
 export function ProjectProvider({ children }: PropsWithChildren) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading: isAuthLoading } = useAuth();
 
   const [projects, setProjects] = useState<Project[]>([]);
   const [activeProjectId, setActiveProjectIdState] = useState<number | null>(() => {
+    const settings = readUserSettings();
+
+    if (!settings.rememberActiveProject) {
+      storage.removeActiveProject();
+      return null;
+    }
+
     const raw = storage.getActiveProject();
     if (!raw) return null;
 
@@ -38,6 +46,13 @@ export function ProjectProvider({ children }: PropsWithChildren) {
   const [isLoading, setIsLoading] = useState(true);
 
   const reloadProjects = useCallback(async () => {
+    const settings = readUserSettings();
+
+    if (isAuthLoading) {
+      setIsLoading(true);
+      return;
+    }
+
     if (!isAuthenticated) {
       setProjects([]);
       setActiveProjectIdState(null);
@@ -56,17 +71,21 @@ export function ProjectProvider({ children }: PropsWithChildren) {
       if (activeProjectId != null && !exists) {
         setActiveProjectIdState(null);
         storage.removeActiveProject();
+      } else if (!settings.rememberActiveProject) {
+        storage.removeActiveProject();
       }
     } finally {
       setIsLoading(false);
     }
-  }, [isAuthenticated, activeProjectId]);
+  }, [isAuthenticated, isAuthLoading, activeProjectId]);
 
   useEffect(() => {
     void reloadProjects();
   }, [reloadProjects]);
 
   const setActiveProjectId = useCallback((projectId: number | null) => {
+    const settings = readUserSettings();
+
     setActiveProjectIdState(projectId);
 
     if (projectId == null) {
@@ -74,7 +93,12 @@ export function ProjectProvider({ children }: PropsWithChildren) {
       return;
     }
 
-    storage.setActiveProject(String(projectId));
+    if (settings.rememberActiveProject) {
+      storage.setActiveProject(String(projectId));
+      return;
+    }
+
+    storage.removeActiveProject();
   }, []);
 
   const clearActiveProject = useCallback(() => {

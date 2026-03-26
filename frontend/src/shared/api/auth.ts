@@ -1,9 +1,11 @@
 import { apiClient } from './client';
 import type {
   AuthResponse,
+  ChangePasswordRequest,
   LoginRequest,
   RefreshTokenRequest,
   RegisterRequest,
+  UpdateMeRequest,
   User,
 } from '../types/auth';
 
@@ -20,6 +22,19 @@ export const authApi = {
 
   me: async () => {
     const response = await apiClient.get<User>('/auth/me');
+    return response.data;
+  },
+
+  updateMe: async (payload: UpdateMeRequest) => {
+    const response = await apiClient.patch<User>('/auth/me', payload);
+    return response.data;
+  },
+
+  changePassword: async (payload: ChangePasswordRequest) => {
+    const response = await apiClient.post<{ message: string }>(
+      '/auth/change-password',
+      payload,
+    );
     return response.data;
   },
 
