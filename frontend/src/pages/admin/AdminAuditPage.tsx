@@ -227,21 +227,22 @@ export default function AdminAuditPage() {
                 </div>
               </div>
 
-              <Row className="g-3 mb-3">
-                <Col lg={4}>
-                  <Form.Control
-                    className="soft-input"
-                    value={search}
-                    onChange={(event) => setSearch(event.target.value)}
+              <div className="audit-filters-row">
+                <div className="audit-filter-search">
+                  <input
+                    type="text"
+                    className="form-control"
                     placeholder="Поиск по ID, пользователю, проекту, IP"
+                    value={search}
+                    onChange={(e) => setSearch(e.target.value)}
                   />
-                </Col>
+                </div>
 
-                <Col md={4} lg={3}>
-                  <Form.Select
-                    className="soft-select w-100"
+                <div className="audit-filter-select">
+                  <select
+                    className="form-select"
                     value={actionFilter}
-                    onChange={(event) => setActionFilter(event.target.value as 'all' | AuditAction)}
+                    onChange={(e) => setActionFilter(e.target.value as AuditAction | 'all')}
                   >
                     <option value="all">Все действия</option>
                     {actionOptions.map((action) => (
@@ -249,14 +250,14 @@ export default function AdminAuditPage() {
                         {getAuditActionLabel(action)}
                       </option>
                     ))}
-                  </Form.Select>
-                </Col>
+                  </select>
+                </div>
 
-                <Col md={4} lg={3}>
-                  <Form.Select
-                    className="soft-select w-100"
+                <div className="audit-filter-select">
+                  <select
+                    className="form-select"
                     value={entityFilter}
-                    onChange={(event) => setEntityFilter(event.target.value as 'all' | AuditEntityType)}
+                    onChange={(e) => setEntityFilter(e.target.value as AuditEntityType | 'all')}
                   >
                     <option value="all">Все сущности</option>
                     {entityOptions.map((entity) => (
@@ -264,14 +265,13 @@ export default function AdminAuditPage() {
                         {getAuditEntityLabel(entity)}
                       </option>
                     ))}
-                  </Form.Select>
-                </Col>
+                  </select>
+                </div>
 
-                <Col md={4} lg={2}>
-                  <div className="audit-page-limit-note">Показывается до {pageSize} строк</div>
-                </Col>
-              </Row>
-
+                <div className="audit-filter-meta">
+                  Показывается до {pageSize} строк
+                </div>
+              </div>
               <div className="table-wrap">
                 <Table borderless responsive className="prototype-table">
                   <thead>
