@@ -1,0 +1,128 @@
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: reports_project_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: 12345
+      POSTGRES_DB: reporting_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d reporting_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    container_name: reports_project_redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--appendonly", "yes"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: reports_project_backend
+    restart: unless-stopped
+    working_dir: /workspace/backend
+    command: >
+      sh -c "alembic upgrade head
+      && python -m app.db.init_db
+      && uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:12345@db:5432/reporting_db
+      TEST_DATABASE_URL: postgresql+psycopg://postgres:12345@db:5432/reporting_test_db
+      JWT_SECRET_KEY: dev-access-secret-change-before-production
+      JWT_REFRESH_SECRET_KEY: dev-refresh-secret-change-before-production
+      ADMIN_BOOTSTRAP_ENABLED: "false"
+      ADMIN_BOOTSTRAP_EMAIL: admin@gmail.com
+      ADMIN_BOOTSTRAP_PASSWORD: Admin12345!
+      ADMIN_BOOTSTRAP_FULL_NAME: Системный администратор
+      ADMIN_BOOTSTRAP_POSITION: Администратор системы
+      ADMIN_BOOTSTRAP_DEPARTMENT: IT
+      PROCESSING_DISPATCH_MODE: celery
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_TASK_ALWAYS_EAGER: "false"
+      CELERY_TASK_EAGER_PROPAGATES: "false"
+      STORAGE_ROOT: /workspace/storage
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./backend:/workspace/backend
+      - backend_storage:/workspace/storage
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  celery:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: reports_project_celery
+    restart: unless-stopped
+    working_dir: /workspace/backend
+    command: celery -A app.tasks.celery_app:celery_app worker --loglevel=info --pool=solo
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:12345@db:5432/reporting_db
+      JWT_SECRET_KEY: dev-access-secret-change-before-production
+      JWT_REFRESH_SECRET_KEY: dev-refresh-secret-change-before-production
+      PROCESSING_DISPATCH_MODE: celery
+      REDIS_URL: redis://redis:6379/0
+      CELERY_BROKER_URL: redis://redis:6379/0
+      CELERY_RESULT_BACKEND: redis://redis:6379/0
+      CELERY_TASK_ALWAYS_EAGER: "false"
+      CELERY_TASK_EAGER_PROPAGATES: "false"
+      STORAGE_ROOT: /workspace/storage
+    volumes:
+      - ./backend:/workspace/backend
+      - backend_storage:/workspace/storage
+    depends_on:
+      backend:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: reports_project_frontend
+    restart: unless-stopped
+    working_dir: /workspace/frontend
+    command: npm run dev -- --host 0.0.0.0 --port 5173
+    environment:
+      VITE_API_URL: http://localhost:8000/api/v1
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./frontend:/workspace/frontend
+      - frontend_node_modules:/workspace/frontend/node_modules
+    depends_on:
+      backend:
+        condition: service_started
+
+volumes:
+  postgres_data:
+  redis_data:
+  backend_storage:
+  frontend_node_modules:

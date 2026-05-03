@@ -4,8 +4,20 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { reportTypesApi } from '../../shared/api/reportTypes';
 import { templatesApi } from '../../shared/api/templates';
-import { TEMPLATE_TYPE_OPTIONS, type CreateMlTemplatePayload, type MlTemplate, type MlTemplateDetail, type TemplateType, type UpdateMlTemplatePayload } from '../../shared/types/template';
-import type { ReportType } from '../../shared/types/report-type';
+import {
+  buildTemplatePreset,
+  getTemplateTypeDescription,
+  getTemplateTypeLabel,
+} from '../../shared/lib/templateLabels';
+import type { CreateReportTypePayload, ReportType } from '../../shared/types/report-type';
+import {
+  TEMPLATE_TYPE_OPTIONS,
+  type CreateMlTemplatePayload,
+  type MlTemplate,
+  type MlTemplateDetail,
+  type TemplateType,
+  type UpdateMlTemplatePayload,
+} from '../../shared/types/template';
 import { ContentCard } from '../../shared/ui/ContentCard';
 
 type FormMode = 'create' | 'edit';
@@ -25,18 +37,26 @@ interface TemplateFormState {
   is_active: boolean;
 }
 
-const initialFormState: TemplateFormState = {
+interface JsonValidationState {
+  isValid: boolean;
+  message: string;
+}
+
+interface ReportTypeFormState {
+  code: string;
+  name: string;
+  description: string;
+  schema_version: string;
+  is_active: boolean;
+}
+
+const INITIAL_TEMPLATE_TYPE: TemplateType = 'classification';
+
+const INITIAL_REPORT_TYPE_FORM: ReportTypeFormState = {
   code: '',
   name: '',
   description: '',
-  template_type: 'classification',
-  target_report_type_id: '',
-  department: '',
-  config_json: '{\n  \n}',
-  metrics_json: '{\n  \n}',
-  model_path: '',
-  version: '1.0',
-  is_default: false,
+  schema_version: '1.0',
   is_active: true,
 };
 
@@ -44,9 +64,28 @@ function prettyJson(value: Record<string, unknown>) {
   return JSON.stringify(value ?? {}, null, 2);
 }
 
+function createInitialFormState(templateType: TemplateType = INITIAL_TEMPLATE_TYPE): TemplateFormState {
+  const preset = buildTemplatePreset(templateType);
+
+  return {
+    code: '',
+    name: '',
+    description: '',
+    template_type: templateType,
+    target_report_type_id: '',
+    department: '',
+    config_json: prettyJson(preset.config_json),
+    metrics_json: prettyJson(preset.metrics_json),
+    model_path: '',
+    version: '1.0',
+    is_default: false,
+    is_active: true,
+  };
+}
+
 function buildFormState(template?: MlTemplateDetail | null): TemplateFormState {
   if (!template) {
-    return initialFormState;
+    return createInitialFormState();
   }
 
   return {
@@ -71,8 +110,27 @@ function formatDateTime(value?: string | null) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
 }
 
-function getTemplateTypeLabel(value: TemplateType) {
-  return TEMPLATE_TYPE_OPTIONS.find((item) => item.value === value)?.label ?? value;
+function parseJsonField(value: string, fieldLabel: string) {
+  try {
+    return JSON.parse(value || '{}') as Record<string, unknown>;
+  } catch {
+    throw new Error(`Поле «${fieldLabel}» содержит некорректный JSON.`);
+  }
+}
+
+function getJsonValidationState(value: string, fieldLabel: string): JsonValidationState {
+  try {
+    JSON.parse(value || '{}');
+    return {
+      isValid: true,
+      message: `${fieldLabel}: корректный JSON`,
+    };
+  } catch {
+    return {
+      isValid: false,
+      message: `${fieldLabel}: обнаружена ошибка в структуре JSON`,
+    };
+  }
 }
 
 export default function AdminTemplatesPage() {
@@ -83,7 +141,7 @@ export default function AdminTemplatesPage() {
   const [reportTypes, setReportTypes] = useState<ReportType[]>([]);
 
   const [selectedTemplate, setSelectedTemplate] = useState<MlTemplateDetail | null>(null);
-  const [formState, setFormState] = useState<TemplateFormState>(initialFormState);
+  const [formState, setFormState] = useState<TemplateFormState>(createInitialFormState());
 
   const [search, setSearch] = useState('');
   const [reportTypeFilter, setReportTypeFilter] = useState('all');
@@ -92,9 +150,13 @@ export default function AdminTemplatesPage() {
   const [formMode, setFormMode] = useState<FormMode>('create');
   const [showFormModal, setShowFormModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
+  const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [showReportTypeModal, setShowReportTypeModal] = useState(false);
+  const [reportTypeForm, setReportTypeForm] = useState<ReportTypeFormState>(INITIAL_REPORT_TYPE_FORM);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmittingReportType, setIsSubmittingReportType] = useState(false);
 
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -149,6 +211,15 @@ export default function AdminTemplatesPage() {
     });
   }, [templates, search, reportTypeFilter, activityFilter]);
 
+  const configValidation = useMemo(
+    () => getJsonValidationState(formState.config_json, 'Конфигурация шаблона'),
+    [formState.config_json],
+  );
+  const metricsValidation = useMemo(
+    () => getJsonValidationState(formState.metrics_json, 'Метрики и контроль качества'),
+    [formState.metrics_json],
+  );
+
   const updateFormField = <K extends keyof TemplateFormState>(
     key: K,
     value: TemplateFormState[K],
@@ -156,12 +227,41 @@ export default function AdminTemplatesPage() {
     setFormState((prev) => ({ ...prev, [key]: value }));
   };
 
+  const closeFormModal = () => {
+    setShowFormModal(false);
+    setSelectedTemplate(null);
+    setShowAdvancedSettings(false);
+  };
+
+  const applyRecommendedPreset = (templateType: TemplateType) => {
+    const preset = buildTemplatePreset(templateType);
+    setFormState((prev) => ({
+      ...prev,
+      template_type: templateType,
+      config_json: prettyJson(preset.config_json),
+      metrics_json: prettyJson(preset.metrics_json),
+    }));
+  };
+
   const openCreateModal = () => {
     setFormMode('create');
-    setFormState(initialFormState);
+    setFormState(createInitialFormState());
+    setShowAdvancedSettings(false);
     setShowFormModal(true);
     setError('');
     setSuccessMessage('');
+  };
+
+  const openReportTypeModal = () => {
+    setReportTypeForm(INITIAL_REPORT_TYPE_FORM);
+    setShowReportTypeModal(true);
+    setError('');
+    setSuccessMessage('');
+  };
+
+  const closeReportTypeModal = () => {
+    setShowReportTypeModal(false);
+    setReportTypeForm(INITIAL_REPORT_TYPE_FORM);
   };
 
   const openEditModal = async (templateId: number) => {
@@ -171,6 +271,7 @@ export default function AdminTemplatesPage() {
       setSelectedTemplate(detail);
       setFormMode('edit');
       setFormState(buildFormState(detail));
+      setShowAdvancedSettings(true);
       setShowFormModal(true);
     } catch {
       setError('Не удалось загрузить данные шаблона для редактирования.');
@@ -188,12 +289,13 @@ export default function AdminTemplatesPage() {
     }
   };
 
-  const parseJsonField = (value: string, fieldLabel: string) => {
-    try {
-      return JSON.parse(value || '{}') as Record<string, unknown>;
-    } catch {
-      throw new Error(`Поле "${fieldLabel}" содержит некорректный JSON.`);
+  const handleTemplateTypeChange = (templateType: TemplateType) => {
+    if (formMode === 'create') {
+      applyRecommendedPreset(templateType);
+      return;
     }
+
+    updateFormField('template_type', templateType);
   };
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -214,8 +316,8 @@ export default function AdminTemplatesPage() {
     try {
       setIsSubmitting(true);
 
-      const configJson = parseJsonField(formState.config_json, 'Конфигурация');
-      const metricsJson = parseJsonField(formState.metrics_json, 'Метрики');
+      const configJson = parseJsonField(formState.config_json, 'Конфигурация шаблона');
+      const metricsJson = parseJsonField(formState.metrics_json, 'Метрики и контроль качества');
 
       if (formMode === 'create') {
         const payload: CreateMlTemplatePayload = {
@@ -262,11 +364,10 @@ export default function AdminTemplatesPage() {
         };
 
         await templatesApi.update(selectedTemplate.id, payload);
-        setSuccessMessage('ML-шаблон успешно обновлен.');
+        setSuccessMessage('ML-шаблон успешно обновлён.');
       }
 
-      setShowFormModal(false);
-      setSelectedTemplate(null);
+      closeFormModal();
       await loadTemplatesData();
     } catch (err) {
       if (err instanceof Error) {
@@ -276,6 +377,48 @@ export default function AdminTemplatesPage() {
       }
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleCreateReportType = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setError('');
+    setSuccessMessage('');
+
+    if (!reportTypeForm.code.trim()) {
+      setError('Укажи код типа отчётности.');
+      return;
+    }
+
+    if (!reportTypeForm.name.trim()) {
+      setError('Укажи название типа отчётности.');
+      return;
+    }
+
+    try {
+      setIsSubmittingReportType(true);
+
+      const payload: CreateReportTypePayload = {
+        code: reportTypeForm.code.trim(),
+        name: reportTypeForm.name.trim(),
+        description: reportTypeForm.description.trim() || null,
+        schema_version: reportTypeForm.schema_version.trim() || '1.0',
+        is_active: reportTypeForm.is_active,
+      };
+
+      const created = await reportTypesApi.create(payload);
+      await loadTemplatesData();
+      setFormState((prev) => ({ ...prev, target_report_type_id: String(created.id) }));
+      setSuccessMessage('Тип отчётности успешно создан.');
+      closeReportTypeModal();
+    } catch (err) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError('Не удалось создать тип отчётности.');
+      }
+    } finally {
+      setIsSubmittingReportType(false);
     }
   };
 
@@ -291,6 +434,9 @@ export default function AdminTemplatesPage() {
             <div className="admin-header-actions">
               <Button className="secondary-pill-button" onClick={() => navigate('/admin')}>
                 Назад
+              </Button>
+              <Button className="secondary-pill-button" onClick={openReportTypeModal}>
+                Создать тип отчётности
               </Button>
               <Button className="primary-pill-button" onClick={openCreateModal}>
                 Создать шаблон
@@ -324,7 +470,7 @@ export default function AdminTemplatesPage() {
                   value={reportTypeFilter}
                   onChange={(event) => setReportTypeFilter(event.target.value)}
                 >
-                  <option value="all">Все типы отчетности</option>
+                  <option value="all">Все типы отчётности</option>
                   {reportTypes.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
@@ -353,7 +499,7 @@ export default function AdminTemplatesPage() {
                       <th>Код</th>
                       <th>Название</th>
                       <th>Тип</th>
-                      <th>Тип отчетности</th>
+                      <th>Тип отчётности</th>
                       <th>Версия</th>
                       <th>Статус</th>
                       <th>По умолчанию</th>
@@ -374,7 +520,11 @@ export default function AdminTemplatesPage() {
                           <td>{template.code}</td>
                           <td>{template.name}</td>
                           <td>{getTemplateTypeLabel(template.template_type)}</td>
-                          <td>{template.target_report_type_id ? reportTypeMap.get(template.target_report_type_id)?.name ?? `#${template.target_report_type_id}` : '-'}</td>
+                          <td>
+                            {template.target_report_type_id
+                              ? reportTypeMap.get(template.target_report_type_id)?.name ?? `#${template.target_report_type_id}`
+                              : '-'}
+                          </td>
                           <td>{template.version}</td>
                           <td>
                             <span className={template.is_active ? 'status-badge status-badge-success' : 'status-badge status-badge-muted'}>
@@ -418,15 +568,7 @@ export default function AdminTemplatesPage() {
         ) : null}
       </ContentCard>
 
-      <Modal
-        show={showFormModal}
-        onHide={() => {
-          setShowFormModal(false);
-          setSelectedTemplate(null);
-        }}
-        size="lg"
-        centered
-      >
+      <Modal show={showFormModal} onHide={closeFormModal} size="lg" centered>
         <Modal.Header closeButton>
           <Modal.Title>
             {formMode === 'create' ? 'Создание ML-шаблона' : 'Редактирование ML-шаблона'}
@@ -435,25 +577,316 @@ export default function AdminTemplatesPage() {
 
         <Form onSubmit={handleSubmit}>
           <Modal.Body>
+            <div className="template-helper-panel mb-4">
+              <div className="template-helper-title">Как заполнить шаблон</div>
+              <div className="template-helper-text">
+                Сначала укажи основные сведения о шаблоне, затем выбери тип обработки. После выбора типа можно
+                подставить рекомендуемый пример конфигурации и при необходимости уточнить расширенные параметры.
+              </div>
+            </div>
+
+            <div className="template-type-grid mb-4">
+              {TEMPLATE_TYPE_OPTIONS.map((item) => {
+                const isActive = formState.template_type === item.value;
+
+                return (
+                  <button
+                    key={item.value}
+                    type="button"
+                    className={`template-type-card ${isActive ? 'template-type-card-active' : ''}`}
+                    onClick={() => handleTemplateTypeChange(item.value)}
+                  >
+                    <div className="template-type-card-title">{item.label}</div>
+                    <div className="template-type-card-text">{getTemplateTypeDescription(item.value)}</div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="template-form-section mb-4">
+              <div className="template-form-section-title">Основные сведения</div>
+              <Row className="g-3">
+                <Col md={6}>
+                  <Form.Group>
+                    <Form.Label>Код шаблона</Form.Label>
+                    <Form.Control
+                      className="soft-input"
+                      value={formState.code}
+                      onChange={(event) => updateFormField('code', event.target.value)}
+                      placeholder="Например: monthly_finance_v1"
+                    />
+                    <Form.Text className="text-muted">
+                      Краткий технический идентификатор без пробелов. Используется в API и логах.
+                    </Form.Text>
+                  </Form.Group>
+                </Col>
+
+                <Col md={6}>
+                  <Form.Group>
+                    <Form.Label>Версия</Form.Label>
+                    <Form.Control
+                      className="soft-input"
+                      value={formState.version}
+                      onChange={(event) => updateFormField('version', event.target.value)}
+                      placeholder="1.0"
+                    />
+                  </Form.Group>
+                </Col>
+
+                <Col md={12}>
+                  <Form.Group>
+                    <Form.Label>Название</Form.Label>
+                    <Form.Control
+                      className="soft-input"
+                      value={formState.name}
+                      onChange={(event) => updateFormField('name', event.target.value)}
+                      placeholder="Например: Ежемесячная финансовая отчётность"
+                    />
+                  </Form.Group>
+                </Col>
+
+                <Col md={6}>
+                  <Form.Group>
+                    <Form.Label>Тип обработки</Form.Label>
+                    <Form.Select
+                      className="soft-input"
+                      value={formState.template_type}
+                      onChange={(event) => handleTemplateTypeChange(event.target.value as TemplateType)}
+                    >
+                      {TEMPLATE_TYPE_OPTIONS.map((item) => (
+                        <option key={item.value} value={item.value}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </Form.Select>
+                  </Form.Group>
+                </Col>
+
+                <Col md={6}>
+                  <Form.Group>
+                    <div className="template-field-header">
+                      <Form.Label>Тип отчётности</Form.Label>
+                      <button
+                        type="button"
+                        className="template-inline-link"
+                        onClick={openReportTypeModal}
+                      >
+                        Создать тип
+                      </button>
+                    </div>
+                    <Form.Select
+                      className="soft-input"
+                      value={formState.target_report_type_id}
+                      onChange={(event) => updateFormField('target_report_type_id', event.target.value)}
+                    >
+                      <option value="">Не задан</option>
+                      {reportTypes.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </Form.Select>
+                    <Form.Text className="text-muted">
+                      Если нужного типа ещё нет, его можно быстро создать прямо на этой странице.
+                    </Form.Text>
+                  </Form.Group>
+                </Col>
+
+                <Col md={6}>
+                  <Form.Group>
+                    <Form.Label>Подразделение</Form.Label>
+                    <Form.Control
+                      className="soft-input"
+                      value={formState.department}
+                      onChange={(event) => updateFormField('department', event.target.value)}
+                      placeholder="Например: Финансовый отдел"
+                    />
+                  </Form.Group>
+                </Col>
+
+                <Col md={6}>
+                  <Form.Group>
+                    <Form.Label>Путь к модели</Form.Label>
+                    <Form.Control
+                      className="soft-input"
+                      value={formState.model_path}
+                      onChange={(event) => updateFormField('model_path', event.target.value)}
+                      placeholder="Например: models/monthly_finance.pkl"
+                    />
+                    <Form.Text className="text-muted">
+                      Поле необязательно. Заполняй его только если шаблон связан с конкретным ML-артефактом.
+                    </Form.Text>
+                  </Form.Group>
+                </Col>
+
+                <Col md={12}>
+                  <Form.Group>
+                    <Form.Label>Описание</Form.Label>
+                    <Form.Control
+                      as="textarea"
+                      rows={3}
+                      className="soft-input soft-textarea"
+                      value={formState.description}
+                      onChange={(event) => updateFormField('description', event.target.value)}
+                      placeholder="Кратко опиши, для какой отчётности и сценария предназначен этот шаблон"
+                    />
+                  </Form.Group>
+                </Col>
+              </Row>
+            </div>
+
+            <div className="template-form-section mb-4">
+              <div className="template-form-section-header">
+                <div>
+                  <div className="template-form-section-title mb-1">Расширенные параметры</div>
+                  <div className="template-form-section-text">
+                    Здесь можно задать конфигурацию обработки и параметры оценки качества. Для большинства сценариев
+                    достаточно подставить рекомендуемый пример и при необходимости скорректировать его.
+                  </div>
+                </div>
+
+                <div className="template-advanced-actions">
+                  <Button
+                    type="button"
+                    className="secondary-pill-button"
+                    onClick={() => setShowAdvancedSettings((prev) => !prev)}
+                  >
+                    {showAdvancedSettings ? 'Скрыть расширенные поля' : 'Показать расширенные поля'}
+                  </Button>
+
+                  <Button
+                    type="button"
+                    className="secondary-pill-button"
+                    onClick={() => applyRecommendedPreset(formState.template_type)}
+                  >
+                    Подставить пример
+                  </Button>
+                </div>
+              </div>
+
+              <div className="template-json-status-grid mb-3">
+                <div className={`template-json-status ${configValidation.isValid ? 'template-json-status-valid' : 'template-json-status-invalid'}`}>
+                  {configValidation.message}
+                </div>
+                <div className={`template-json-status ${metricsValidation.isValid ? 'template-json-status-valid' : 'template-json-status-invalid'}`}>
+                  {metricsValidation.message}
+                </div>
+              </div>
+
+              {showAdvancedSettings ? (
+                <Row className="g-3">
+                  <Col md={6}>
+                    <Form.Group>
+                      <Form.Label>Конфигурация шаблона</Form.Label>
+                      <Form.Control
+                        as="textarea"
+                        rows={9}
+                        className="soft-input soft-textarea template-json-area"
+                        value={formState.config_json}
+                        onChange={(event) => updateFormField('config_json', event.target.value)}
+                      />
+                      <Form.Text className="text-muted">
+                        Здесь задаются рабочие параметры обработки: стратегия, пороги, правила чтения и нормализации.
+                      </Form.Text>
+                    </Form.Group>
+                  </Col>
+
+                  <Col md={6}>
+                    <Form.Group>
+                      <Form.Label>Метрики и контроль качества</Form.Label>
+                      <Form.Control
+                        as="textarea"
+                        rows={9}
+                        className="soft-input soft-textarea template-json-area"
+                        value={formState.metrics_json}
+                        onChange={(event) => updateFormField('metrics_json', event.target.value)}
+                      />
+                      <Form.Text className="text-muted">
+                        Укажи, какие показатели качества нужно отслеживать и какие пороговые значения считаются допустимыми.
+                      </Form.Text>
+                    </Form.Group>
+                  </Col>
+                </Row>
+              ) : (
+                <div className="template-collapsed-note">
+                  Выбрано: <strong>{getTemplateTypeLabel(formState.template_type)}</strong>. Рекомендуемый пример можно
+                  подставить одной кнопкой и открыть расширенные поля только при необходимости.
+                </div>
+              )}
+            </div>
+
+            <Row className="g-3">
+              <Col md={6}>
+                <Form.Check
+                  type="switch"
+                  id="template-is-default"
+                  label="Использовать как шаблон по умолчанию"
+                  checked={formState.is_default}
+                  onChange={(event) => updateFormField('is_default', event.target.checked)}
+                />
+              </Col>
+
+              <Col md={6}>
+                <Form.Check
+                  type="switch"
+                  id="template-is-active"
+                  label="Шаблон активен"
+                  checked={formState.is_active}
+                  onChange={(event) => updateFormField('is_active', event.target.checked)}
+                />
+              </Col>
+            </Row>
+          </Modal.Body>
+
+          <Modal.Footer>
+            <Button type="button" className="secondary-pill-button" onClick={closeFormModal}>
+              Отмена
+            </Button>
+
+            <Button type="submit" className="primary-pill-button" disabled={isSubmitting}>
+              {isSubmitting ? 'Сохранение...' : formMode === 'create' ? 'Создать шаблон' : 'Сохранить изменения'}
+            </Button>
+          </Modal.Footer>
+        </Form>
+      </Modal>
+
+
+
+      <Modal show={showReportTypeModal} onHide={closeReportTypeModal} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Создание типа отчётности</Modal.Title>
+        </Modal.Header>
+
+        <Form onSubmit={handleCreateReportType}>
+          <Modal.Body>
+            <div className="template-helper-panel mb-4">
+              <div className="template-helper-title">Новый тип отчётности</div>
+              <div className="template-helper-text">
+                Создай тип отчётности, чтобы затем использовать его при создании отчётов и привязке ML-шаблонов.
+              </div>
+            </div>
+
             <Row className="g-3">
               <Col md={6}>
                 <Form.Group>
                   <Form.Label>Код</Form.Label>
                   <Form.Control
                     className="soft-input"
-                    value={formState.code}
-                    onChange={(event) => updateFormField('code', event.target.value)}
+                    value={reportTypeForm.code}
+                    onChange={(event) => setReportTypeForm((prev) => ({ ...prev, code: event.target.value }))}
+                    placeholder="Например: monthly_finance"
                   />
                 </Form.Group>
               </Col>
 
               <Col md={6}>
                 <Form.Group>
-                  <Form.Label>Версия</Form.Label>
+                  <Form.Label>Версия схемы</Form.Label>
                   <Form.Control
                     className="soft-input"
-                    value={formState.version}
-                    onChange={(event) => updateFormField('version', event.target.value)}
+                    value={reportTypeForm.schema_version}
+                    onChange={(event) => setReportTypeForm((prev) => ({ ...prev, schema_version: event.target.value }))}
+                    placeholder="1.0"
                   />
                 </Form.Group>
               </Col>
@@ -463,67 +896,9 @@ export default function AdminTemplatesPage() {
                   <Form.Label>Название</Form.Label>
                   <Form.Control
                     className="soft-input"
-                    value={formState.name}
-                    onChange={(event) => updateFormField('name', event.target.value)}
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>Тип шаблона</Form.Label>
-                  <Form.Select
-                    className="soft-input"
-                    value={formState.template_type}
-                    onChange={(event) =>
-                      updateFormField('template_type', event.target.value as TemplateType)
-                    }
-                  >
-                    {TEMPLATE_TYPE_OPTIONS.map((item) => (
-                      <option key={item.value} value={item.value}>
-                        {item.label}
-                      </option>
-                    ))}
-                  </Form.Select>
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>Тип отчетности</Form.Label>
-                  <Form.Select
-                    className="soft-input"
-                    value={formState.target_report_type_id}
-                    onChange={(event) => updateFormField('target_report_type_id', event.target.value)}
-                  >
-                    <option value="">Не задан</option>
-                    {reportTypes.map((item) => (
-                      <option key={item.id} value={item.id}>
-                        {item.name}
-                      </option>
-                    ))}
-                  </Form.Select>
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>Отдел</Form.Label>
-                  <Form.Control
-                    className="soft-input"
-                    value={formState.department}
-                    onChange={(event) => updateFormField('department', event.target.value)}
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>Путь к модели</Form.Label>
-                  <Form.Control
-                    className="soft-input"
-                    value={formState.model_path}
-                    onChange={(event) => updateFormField('model_path', event.target.value)}
+                    value={reportTypeForm.name}
+                    onChange={(event) => setReportTypeForm((prev) => ({ ...prev, name: event.target.value }))}
+                    placeholder="Например: Ежемесячная финансовая отчётность"
                   />
                 </Form.Group>
               </Col>
@@ -535,74 +910,31 @@ export default function AdminTemplatesPage() {
                     as="textarea"
                     rows={3}
                     className="soft-input soft-textarea"
-                    value={formState.description}
-                    onChange={(event) => updateFormField('description', event.target.value)}
+                    value={reportTypeForm.description}
+                    onChange={(event) => setReportTypeForm((prev) => ({ ...prev, description: event.target.value }))}
+                    placeholder="Кратко опиши назначение типа отчётности"
                   />
                 </Form.Group>
               </Col>
 
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>config_json</Form.Label>
-                  <Form.Control
-                    as="textarea"
-                    rows={8}
-                    className="soft-input soft-textarea template-json-area"
-                    value={formState.config_json}
-                    onChange={(event) => updateFormField('config_json', event.target.value)}
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>metrics_json</Form.Label>
-                  <Form.Control
-                    as="textarea"
-                    rows={8}
-                    className="soft-input soft-textarea template-json-area"
-                    value={formState.metrics_json}
-                    onChange={(event) => updateFormField('metrics_json', event.target.value)}
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
+              <Col md={12}>
                 <Form.Check
                   type="switch"
-                  id="template-is-default"
-                  label="Шаблон по умолчанию"
-                  checked={formState.is_default}
-                  onChange={(event) => updateFormField('is_default', event.target.checked)}
-                />
-              </Col>
-
-              <Col md={6}>
-                <Form.Check
-                  type="switch"
-                  id="template-is-active"
-                  label="Активный шаблон"
-                  checked={formState.is_active}
-                  onChange={(event) => updateFormField('is_active', event.target.checked)}
+                  id="report-type-active"
+                  label="Тип отчётности активен"
+                  checked={reportTypeForm.is_active}
+                  onChange={(event) => setReportTypeForm((prev) => ({ ...prev, is_active: event.target.checked }))}
                 />
               </Col>
             </Row>
           </Modal.Body>
 
           <Modal.Footer>
-            <Button
-              variant="light"
-              className="secondary-pill-button"
-              onClick={() => {
-                setShowFormModal(false);
-                setSelectedTemplate(null);
-              }}
-            >
+            <Button type="button" className="secondary-pill-button" onClick={closeReportTypeModal}>
               Отмена
             </Button>
-
-            <Button type="submit" className="primary-pill-button" disabled={isSubmitting}>
-              {isSubmitting ? 'Сохранение...' : formMode === 'create' ? 'Создать' : 'Сохранить'}
+            <Button type="submit" className="primary-pill-button" disabled={isSubmittingReportType}>
+              {isSubmittingReportType ? 'Сохранение...' : 'Создать тип'}
             </Button>
           </Modal.Footer>
         </Form>
@@ -639,7 +971,7 @@ export default function AdminTemplatesPage() {
               </div>
 
               <div className="form-meta-card">
-                <div className="form-meta-label">Тип</div>
+                <div className="form-meta-label">Тип обработки</div>
                 <div className="form-meta-value">{getTemplateTypeLabel(selectedTemplate.template_type)}</div>
               </div>
 
@@ -649,7 +981,7 @@ export default function AdminTemplatesPage() {
               </div>
 
               <div className="form-meta-card">
-                <div className="form-meta-label">Тип отчетности</div>
+                <div className="form-meta-label">Тип отчётности</div>
                 <div className="form-meta-value">
                   {selectedTemplate.target_report_type_id
                     ? reportTypeMap.get(selectedTemplate.target_report_type_id)?.name ?? `#${selectedTemplate.target_report_type_id}`
@@ -682,27 +1014,23 @@ export default function AdminTemplatesPage() {
               </div>
 
               <div className="form-meta-card template-detail-wide">
-                <div className="form-meta-label">config_json</div>
-                <pre className="template-json-preview">
-                  {prettyJson(selectedTemplate.config_json)}
-                </pre>
+                <div className="form-meta-label">Конфигурация шаблона</div>
+                <pre className="template-json-preview">{prettyJson(selectedTemplate.config_json)}</pre>
               </div>
 
               <div className="form-meta-card template-detail-wide">
-                <div className="form-meta-label">metrics_json</div>
-                <pre className="template-json-preview">
-                  {prettyJson(selectedTemplate.metrics_json)}
-                </pre>
+                <div className="form-meta-label">Метрики и контроль качества</div>
+                <pre className="template-json-preview">{prettyJson(selectedTemplate.metrics_json)}</pre>
               </div>
 
               <div className="form-meta-card template-detail-wide">
                 <div className="form-meta-label">Служебная информация</div>
                 <div className="result-info-list">
                   <div><strong>ID:</strong> {selectedTemplate.id}</div>
-                  <div><strong>created_at:</strong> {formatDateTime(selectedTemplate.created_at)}</div>
-                  <div><strong>updated_at:</strong> {formatDateTime(selectedTemplate.updated_at)}</div>
-                  <div><strong>model_path:</strong> {selectedTemplate.model_path ?? '-'}</div>
-                  <div><strong>department:</strong> {selectedTemplate.department ?? '-'}</div>
+                  <div><strong>Создан:</strong> {formatDateTime(selectedTemplate.created_at)}</div>
+                  <div><strong>Обновлён:</strong> {formatDateTime(selectedTemplate.updated_at)}</div>
+                  <div><strong>Путь к модели:</strong> {selectedTemplate.model_path ?? '-'}</div>
+                  <div><strong>Подразделение:</strong> {selectedTemplate.department ?? '-'}</div>
                 </div>
               </div>
             </div>

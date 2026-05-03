@@ -92,7 +92,7 @@ export function NotificationsBell() {
   };
 
   return (
-    <Dropdown align="end">
+    <Dropdown align="end" className="notification-bell-dropdown">
       <Dropdown.Toggle className="notification-bell-button" id="notifications-dropdown">
         <img src={bellIcon} alt="Уведомления" className="notification-bell-image" />
         {unreadCount > 0 ? <Badge pill bg="primary">{unreadCount}</Badge> : null}

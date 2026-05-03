@@ -3,6 +3,7 @@ import type { ExportFormat } from '../types/export';
 export type AnalyticsDefaultView = 'overviewMetrics' | 'statusDistribution' | 'periodDynamics';
 export type AnalyticsDefaultPeriod = '30d' | '90d' | '180d' | '365d';
 export type ProcessingPriority = '1' | '3' | '5';
+export type ThemeMode = 'light' | 'dark';
 
 export const USER_SETTINGS_KEYS = {
   autoRefresh: 'reportrt.settings.autoRefresh',
@@ -17,6 +18,7 @@ export const USER_SETTINGS_KEYS = {
   notificationsUnreadOnly: 'reportrt.settings.notificationsUnreadOnly',
   autoMarkNotificationsRead: 'reportrt.settings.autoMarkNotificationsRead',
   rememberActiveProject: 'reportrt.settings.rememberActiveProject',
+  themeMode: 'reportrt.settings.themeMode',
   lastMlTemplateId: 'reportrt.settings.lastMlTemplateId',
 } as const;
 
@@ -33,6 +35,7 @@ export interface UserSettingsSnapshot {
   notificationsUnreadOnly: boolean;
   autoMarkNotificationsRead: boolean;
   rememberActiveProject: boolean;
+  themeMode: ThemeMode;
   lastMlTemplateId: string | null;
 }
 
@@ -97,6 +100,7 @@ export function readUserSettings(): UserSettingsSnapshot {
       USER_SETTINGS_KEYS.rememberActiveProject,
       true,
     ),
+    themeMode: readString<ThemeMode>(USER_SETTINGS_KEYS.themeMode, 'light'),
     lastMlTemplateId: localStorage.getItem(USER_SETTINGS_KEYS.lastMlTemplateId),
   };
 }

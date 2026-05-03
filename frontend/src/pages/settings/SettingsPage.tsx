@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { Alert, Button, Form } from 'react-bootstrap';
 import { useLocation } from 'react-router-dom';
 import { storage } from '../../shared/lib/storage';
-import { saveLastMlTemplateId } from '../../shared/lib/userSettings';
+import { saveLastMlTemplateId, type ThemeMode } from '../../shared/lib/userSettings';
+import { applyThemeMode, useThemeMode } from '../../app/providers/ThemeProvider';
 import { ContentCard } from '../../shared/ui/ContentCard';
 import type { ExportFormat } from '../../shared/types/export';
 
@@ -22,11 +23,13 @@ const STORAGE_KEYS = {
   autoMarkNotificationsRead: 'reportrt.settings.autoMarkNotificationsRead',
   projectScopedBadges: 'reportrt.settings.projectScopedBadges',
   rememberActiveProject: 'reportrt.settings.rememberActiveProject',
+  themeMode: 'reportrt.settings.themeMode',
 } as const;
 
 type AnalyticsDefaultView = 'overviewMetrics' | 'statusDistribution' | 'periodDynamics';
 type AnalyticsDefaultPeriod = '30d' | '90d' | '180d' | '365d';
 type ProcessingPriority = '1' | '3' | '5';
+type LocalThemeMode = ThemeMode;
 
 const ANALYTICS_PERIOD_LABELS: Record<AnalyticsDefaultPeriod, string> = {
   '30d': '30 дней',
@@ -51,6 +54,7 @@ interface SettingsState {
   autoMarkNotificationsRead: boolean;
   projectScopedBadges: boolean;
   rememberActiveProject: boolean;
+  themeMode: LocalThemeMode;
 }
 
 const DEFAULT_SETTINGS: SettingsState = {
@@ -69,6 +73,7 @@ const DEFAULT_SETTINGS: SettingsState = {
   autoMarkNotificationsRead: true,
   projectScopedBadges: true,
   rememberActiveProject: true,
+  themeMode: 'light',
 };
 
 function readBoolean(key: string, fallback: boolean) {
@@ -122,6 +127,7 @@ function persistSettings(settings: SettingsState) {
   );
   localStorage.setItem(STORAGE_KEYS.projectScopedBadges, String(settings.projectScopedBadges));
   localStorage.setItem(STORAGE_KEYS.rememberActiveProject, String(settings.rememberActiveProject));
+  localStorage.setItem(STORAGE_KEYS.themeMode, settings.themeMode);
 
   if (!settings.rememberActiveProject) {
     storage.removeActiveProject();
@@ -138,6 +144,7 @@ function removeAllStoredSettings() {
 
 export default function SettingsPage() {
   const location = useLocation();
+  const { themeMode, setThemeMode } = useThemeMode();
   const [settings, setSettings] = useState<SettingsState>(DEFAULT_SETTINGS);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState('');
@@ -205,7 +212,16 @@ export default function SettingsPage() {
           STORAGE_KEYS.rememberActiveProject,
           DEFAULT_SETTINGS.rememberActiveProject,
         ),
+        themeMode: readString<LocalThemeMode>(
+          STORAGE_KEYS.themeMode,
+          themeMode,
+        ),
       };
+
+      if (loaded.themeMode !== themeMode) {
+        applyThemeMode(loaded.themeMode);
+        setThemeMode(loaded.themeMode);
+      }
 
       setSettings(loaded);
     } catch {
@@ -213,6 +229,11 @@ export default function SettingsPage() {
     }
   }, []);
 
+
+
+  useEffect(() => {
+    setSettings((prev) => (prev.themeMode === themeMode ? prev : { ...prev, themeMode }));
+  }, [themeMode]);
 
   useEffect(() => {
     if (!location.hash) {
@@ -232,12 +253,21 @@ export default function SettingsPage() {
 
   const updateSetting = <K extends keyof SettingsState>(key: K, value: SettingsState[K]) => {
     setSettings((prev) => ({ ...prev, [key]: value }));
+
+    if (key === 'themeMode') {
+      applyThemeMode(value as LocalThemeMode);
+      setThemeMode(value as LocalThemeMode);
+      localStorage.setItem(STORAGE_KEYS.themeMode, value as LocalThemeMode);
+    }
+
     setSaved(false);
   };
 
   const handleSave = () => {
     try {
       persistSettings(settings);
+      applyThemeMode(settings.themeMode);
+      setThemeMode(settings.themeMode);
       setSaved(true);
       setError('');
       window.setTimeout(() => setSaved(false), 1800);
@@ -248,6 +278,8 @@ export default function SettingsPage() {
 
   const handleReset = () => {
     removeAllStoredSettings();
+    applyThemeMode(DEFAULT_SETTINGS.themeMode);
+    setThemeMode(DEFAULT_SETTINGS.themeMode);
     setSettings(DEFAULT_SETTINGS);
     setSaved(false);
     setError('');
@@ -296,6 +328,16 @@ export default function SettingsPage() {
                 checked={settings.rememberActiveProject}
                 onChange={(event) =>
                   updateSetting('rememberActiveProject', event.target.checked)
+                }
+              />
+
+              <Form.Check
+                type="switch"
+                id="theme-mode"
+                label="Тёмная тема интерфейса"
+                checked={settings.themeMode === 'dark'}
+                onChange={(event) =>
+                  updateSetting('themeMode', event.target.checked ? 'dark' : 'light')
                 }
               />
 
@@ -479,6 +521,10 @@ export default function SettingsPage() {
               <div className="settings-summary-item">
                 <span>Активный проект</span>
                 <strong>{settings.rememberActiveProject ? 'Запоминается' : 'Не сохраняется'}</strong>
+              </div>
+              <div className="settings-summary-item">
+                <span>Тема интерфейса</span>
+                <strong>{settings.themeMode === 'dark' ? 'Тёмная' : 'Светлая'}</strong>
               </div>
             </div>
           </div>

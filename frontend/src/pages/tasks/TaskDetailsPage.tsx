@@ -4,6 +4,13 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { mlApi } from '../../shared/api/ml';
 import { processingApi } from '../../shared/api/processing';
 import { tasksApi } from '../../shared/api/tasks';
+import {
+  getProcessingErrorTypeLabel,
+  getProcessingLevelLabel,
+  getProcessingMessageLabel,
+  getProcessingStageLabel,
+  getProcessingStatusLabel,
+} from '../../shared/lib/processingLabels';
 import { readUserSettings } from '../../shared/lib/userSettings';
 import type { MlPipelineResult } from '../../shared/types/ml-pipeline';
 import type {
@@ -16,25 +23,6 @@ function formatDateTime(value?: string | null) {
   if (!value) return '-';
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
-}
-
-function getStatusLabel(status: string) {
-  switch (status) {
-    case 'queued':
-      return 'В очереди';
-    case 'running':
-      return 'Выполняется';
-    case 'success':
-      return 'Успешно';
-    case 'failed':
-      return 'Ошибка';
-    case 'retry':
-      return 'Повтор';
-    case 'cancelled':
-      return 'Отменена';
-    default:
-      return status;
-  }
 }
 
 const POLLABLE_STATUSES = new Set(['queued', 'running', 'retry']);
@@ -226,7 +214,7 @@ export default function TaskDetailsPage() {
 
           <div className="form-meta-card">
             <div className="form-meta-label">Статус</div>
-            <div className="form-meta-value">{getStatusLabel(progress.status)}</div>
+            <div className="form-meta-value">{getProcessingStatusLabel(progress.status)}</div>
           </div>
 
           <div className="form-meta-card">
@@ -269,10 +257,10 @@ export default function TaskDetailsPage() {
                   {task.logs.map((log) => (
                     <div key={log.id} className="task-log-item">
                       <div className="task-log-top">
-                        <strong>{log.stage}</strong>
-                        <span>{formatDateTime(log.created_at)}</span>
+                        <strong>{getProcessingStageLabel(log.stage)}</strong>
+                        <span>{getProcessingLevelLabel(log.level)} · {formatDateTime(log.created_at)}</span>
                       </div>
-                      <div>{log.message}</div>
+                      <div>{getProcessingMessageLabel(log.message)}</div>
                     </div>
                   ))}
                 </div>
@@ -330,7 +318,7 @@ export default function TaskDetailsPage() {
                   task.errors.map((item) => (
                     <tr key={item.id}>
                       <td>{item.error_code}</td>
-                      <td>{item.error_type}</td>
+                      <td>{getProcessingErrorTypeLabel(item.error_type)}</td>
                       <td>{item.field_path ?? '-'}</td>
                       <td>{item.row_number ?? '-'}</td>
                       <td>{item.details ?? item.source_value ?? '-'}</td>

@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom';
 import { Button } from 'react-bootstrap';
 import { useAuth } from '../../features/auth/AuthProvider';
+import { getRoleLabel } from '../lib/adminLabels';
 
 const navItems = [
   { label: 'Главная', to: '/dashboard' },
@@ -52,7 +53,7 @@ export function AppSidebar() {
     <aside className="app-sidebar">
       <div>
         <div className="brand-block">
-          <div className="brand-avatar" />
+          <img src="/icon_page_final.svg" alt="ReportRT" className="brand-logo-image" />
           <div className="brand-title">ReportRT</div>
         </div>
 
@@ -110,7 +111,7 @@ export function AppSidebar() {
 
         <div className="user-info">
           <div className="user-name">{getSidebarDisplayName(user?.full_name)}</div>
-          <div className="user-role">{user?.role.name ?? 'Роль не указана'}</div>
+          <div className="user-role">{user?.role ? getRoleLabel(user.role.code) : 'Роль не указана'}</div>
         </div>
       </NavLink>
     </div>

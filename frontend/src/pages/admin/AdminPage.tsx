@@ -4,6 +4,7 @@ import { adminApi } from '../../shared/api/admin';
 import { rolesApi } from '../../shared/api/roles';
 import { usersApi } from '../../shared/api/users';
 import { getAccessStatusLabel, getRoleLabel } from '../../shared/lib/adminLabels';
+import { getProjectRoleLabel } from '../../shared/types/project';
 import type { RoleCode, Role } from '../../shared/types/auth';
 import type {
   AdminOverview,
@@ -291,7 +292,7 @@ export default function AdminPage() {
                 <option value="all">Все роли</option>
                 {roles.map((role) => (
                   <option key={role.id} value={role.code}>
-                    {role.name}
+                    {getRoleLabel(role.code)}
                   </option>
                 ))}
               </Form.Select>
@@ -330,7 +331,7 @@ export default function AdminPage() {
                           <td>{user.email}</td>
                           <td>
                             <div className="admin-role-cell">
-                              <span>{role?.name ?? '-'}</span>
+                              <span>{role ? getRoleLabel(role.code) : '-'}</span>
                               <Form.Select
                                 className="admin-inline-select"
                                 value={selectedRole}
@@ -343,7 +344,7 @@ export default function AdminPage() {
                               >
                                 {roles.map((item) => (
                                   <option key={item.id} value={item.code}>
-                                    {item.name}
+                                    {getRoleLabel(item.code as RoleCode)}
                                   </option>
                                 ))}
                               </Form.Select>
@@ -452,7 +453,7 @@ export default function AdminPage() {
                           {item.project.name} ({item.project.code})
                         </td>
                         <td>{item.user.full_name}</td>
-                        <td>{item.member_role}</td>
+                        <td>{getProjectRoleLabel(item.member_role)}</td>
                         <td>{getAccessStatusLabel(item.access_status)}</td>
                         <td>{formatDateTime(item.requested_at)}</td>
                         <td>

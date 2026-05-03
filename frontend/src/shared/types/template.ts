@@ -64,7 +64,7 @@ export interface UpdateMlTemplatePayload {
 
 export const TEMPLATE_TYPE_OPTIONS: Array<{ value: TemplateType; label: string }> = [
   { value: 'classification', label: 'Классификация' },
-  { value: 'extraction', label: 'Извлечение' },
+  { value: 'extraction', label: 'Извлечение данных' },
   { value: 'normalization', label: 'Нормализация' },
-  { value: 'hybrid', label: 'Гибридный' },
+  { value: 'hybrid', label: 'Гибридный режим' },
 ];

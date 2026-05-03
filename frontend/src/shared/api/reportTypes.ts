@@ -1,5 +1,5 @@
 import { apiClient } from './client';
-import type { ReportType } from '../types/report-type';
+import type { CreateReportTypePayload, ReportType } from '../types/report-type';
 
 export const reportTypesApi = {
   list: async () => {
@@ -9,6 +9,11 @@ export const reportTypesApi = {
 
   getById: async (reportTypeId: number) => {
     const response = await apiClient.get<ReportType>(`/report-types/${reportTypeId}`);
+    return response.data;
+  },
+
+  create: async (payload: CreateReportTypePayload) => {
+    const response = await apiClient.post<ReportType>('/report-types', payload);
     return response.data;
   },
 };

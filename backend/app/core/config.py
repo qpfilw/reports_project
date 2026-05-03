@@ -27,11 +27,11 @@ class Settings(BaseSettings):
 
     jwt_secret_key: str = Field(
         default="change-me-access-secret",
-        alias="CJ3Mrqg02AxrngCUJTUUXqBZePtBjcBrS3DeiQz8WjAEWkyDRB0uHDhQHT_0Yvii",
+        alias="JWT_SECRET_KEY",
     )
     jwt_refresh_secret_key: str = Field(
         default="change-me-refresh-secret",
-        alias="6yBZx32Mg-qC89lbG2pktC5zisRLn5XwPdScs0cWeRS3AhjG3Sr0RsEOyph6RpdG",
+        alias="JWT_REFRESH_SECRET_KEY",
     )
     jwt_algorithm: str = "HS256"
     access_token_expire_minutes: int = 60

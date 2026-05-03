@@ -17,6 +17,13 @@ import {
   getReportStatusClassName,
   getReportStatusLabel,
 } from '../../shared/lib/reportStatus';
+import {
+  getProcessingErrorTypeLabel,
+  getProcessingLevelLabel,
+  getProcessingMessageLabel,
+  getProcessingStageLabel,
+  getProcessingStatusLabel,
+} from '../../shared/lib/processingLabels';
 import { readUserSettings } from '../../shared/lib/userSettings';
 import type { ExportArtifactDetail, ExportFormat } from '../../shared/types/export';
 import type { ProcessingTaskDetail } from '../../shared/types/processing';
@@ -125,6 +132,97 @@ function getAvailableWorkflowActions(
   }
 
   return actions;
+}
+
+function getSummaryKeyLabel(key: string) {
+  const labels: Record<string, string> = {
+    errors: 'Ошибки',
+    warnings: 'Предупреждения',
+    total_rows: 'Всего строк',
+    valid_rows: 'Корректные строки',
+    invalid_rows: 'Некорректные строки',
+    aggregation: 'Сводные показатели',
+    rows: 'Количество строк',
+    columns: 'Количество столбцов',
+    numeric_columns: 'Числовые столбцы',
+    id: 'Идентификатор',
+    count: 'Количество',
+    amount: 'Сумма',
+  };
+
+  return labels[key] ?? key.replace(/_/g, ' ');
+}
+
+function getMetricLabel(key: string) {
+  const labels: Record<string, string> = {
+    min: 'Минимум',
+    max: 'Максимум',
+    sum: 'Сумма',
+    count: 'Количество значений',
+  };
+
+  return labels[key] ?? key.replace(/_/g, ' ');
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function renderAggregation(value: unknown) {
+  if (!isPlainObject(value)) {
+    return value == null ? '-' : String(value);
+  }
+
+  const rows = value.rows;
+  const columns = value.columns;
+  const numericColumns = isPlainObject(value.numeric_columns) ? value.numeric_columns : null;
+
+  return (
+    <div className="summary-aggregation">
+      <div className="summary-aggregation-top">
+        {rows !== undefined && (
+          <div className="summary-aggregation-stat summary-aggregation-stat-card">
+            <div className="summary-aggregation-stat-label">Количество строк</div>
+            <div className="summary-aggregation-stat-value">{String(rows)}</div>
+          </div>
+        )}
+
+        {columns !== undefined && (
+          <div className="summary-aggregation-stat summary-aggregation-stat-card">
+            <div className="summary-aggregation-stat-label">Количество столбцов</div>
+            <div className="summary-aggregation-stat-value">{String(columns)}</div>
+          </div>
+        )}
+      </div>
+
+      {numericColumns && (
+        <div className="summary-aggregation-section">
+          <div className="summary-aggregation-section-title">Числовые столбцы</div>
+
+          <div className="summary-metric-grid">
+            {Object.entries(numericColumns).map(([columnKey, metricValue]) => {
+              if (!isPlainObject(metricValue)) return null;
+
+              return (
+                <div key={columnKey} className="summary-metric-card">
+                  <div className="summary-metric-card-title">{getSummaryKeyLabel(columnKey)}</div>
+
+                  <div className="summary-metric-card-body">
+                    {Object.entries(metricValue).map(([metricKey, metricVal]) => (
+                      <div key={metricKey} className="summary-metric-row">
+                        <span className="summary-metric-row-label">{getMetricLabel(metricKey)}</span>
+                        <span className="summary-metric-row-value">{String(metricVal)}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export default function ReportResultPage() {
@@ -466,6 +564,15 @@ export default function ReportResultPage() {
     );
   }
 
+  const summaryJson = resultDetail?.summary_json ?? {};
+  const summaryTopItems: Array<[string, unknown]> = [
+    ['errors', summaryJson.errors],
+    ['warnings', summaryJson.warnings],
+    ['total_rows', summaryJson.total_rows],
+    ['valid_rows', summaryJson.valid_rows],
+    ['invalid_rows', summaryJson.invalid_rows],
+  ].filter((item): item is [string, unknown] => item[1] !== undefined);
+
   return (
     <>
       <ContentCard
@@ -600,7 +707,7 @@ export default function ReportResultPage() {
 
                 <div className="result-info-list">
                   <div><strong>ID задачи:</strong> {taskDetail?.id ?? '-'}</div>
-                  <div><strong>Статус задачи:</strong> {taskDetail?.status ?? '-'}</div>
+                  <div><strong>Статус задачи:</strong> {taskDetail ? getProcessingStatusLabel(taskDetail.status) : '-'}</div>
                   <div><strong>Прогресс:</strong> {taskDetail?.progress ?? 0}%</div>
                   <div>
                     <strong>Качество:</strong>{' '}
@@ -635,16 +742,33 @@ export default function ReportResultPage() {
 
             {!resultDetail ? (
               <div className="form-meta-value">Нормализованный результат пока отсутствует.</div>
-            ) : Object.keys(resultDetail.summary_json ?? {}).length === 0 ? (
+            ) : Object.keys(summaryJson).length === 0 ? (
               <div className="form-meta-value">Сводные данные отсутствуют.</div>
             ) : (
-              <div className="result-summary-grid">
-                {Object.entries(resultDetail.summary_json).map(([key, value]) => (
-                  <div key={key} className="result-summary-item">
-                    <div className="result-summary-key">{key}</div>
-                    <div className="result-summary-value">{String(value)}</div>
+              <div className="result-summary-layout">
+                <Row className="g-3 mb-3">
+                  {summaryTopItems.map(([summaryKey, value]) => (
+                    <Col key={summaryKey} xs={6} md={4} xl>
+                      <div className="result-summary-item result-summary-stat-card">
+                        <div className="result-summary-key">
+                          {getSummaryKeyLabel(summaryKey)}
+                        </div>
+                        <div className="result-summary-stat-value">
+                          {String(value)}
+                        </div>
+                      </div>
+                    </Col>
+                  ))}
+                </Row>
+
+                {summaryJson.aggregation !== undefined ? (
+                  <div className="result-summary-item result-summary-aggregation-item">
+                    <div className="result-summary-key">Сводные показатели</div>
+                    <div className="result-summary-value">
+                      {renderAggregation(summaryJson.aggregation)}
+                    </div>
                   </div>
-                ))}
+                ) : null}
               </div>
             )}
           </div>
@@ -683,17 +807,17 @@ export default function ReportResultPage() {
               <div className="form-meta-card h-100">
                 <div className="form-meta-label">Логи обработки</div>
 
-                                {!taskDetail || taskDetail.logs.length === 0 ? (
+                {!taskDetail || taskDetail.logs.length === 0 ? (
                   <div className="form-meta-value">Логи отсутствуют.</div>
                 ) : (
                   <div className="task-log-list">
                     {taskDetail.logs.map((log) => (
                       <div key={log.id} className="task-log-item">
                         <div className="task-log-top">
-                          <strong>{log.stage}</strong>
-                          <span>{formatDateTime(log.created_at)}</span>
+                          <strong>{getProcessingStageLabel(log.stage)}</strong>
+                          <span>{getProcessingLevelLabel(log.level)} · {formatDateTime(log.created_at)}</span>
                         </div>
-                        <div>{log.message}</div>
+                        <div>{getProcessingMessageLabel(log.message)}</div>
                       </div>
                     ))}
                   </div>
@@ -713,7 +837,7 @@ export default function ReportResultPage() {
                       <div key={item.id} className="task-log-item">
                         <div className="task-log-top">
                           <strong>{item.error_code}</strong>
-                          <span>{item.error_type}</span>
+                          <span>{getProcessingErrorTypeLabel(item.error_type)}</span>
                         </div>
                         <div>{item.details ?? item.source_value ?? 'Без подробностей'}</div>
                       </div>

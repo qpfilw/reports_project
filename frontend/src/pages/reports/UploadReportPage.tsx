@@ -6,6 +6,7 @@ import { mlApi } from '../../shared/api/ml';
 import { processingApi } from '../../shared/api/processing';
 import { reportsApi } from '../../shared/api/reports';
 import { uploadsApi } from '../../shared/api/uploads';
+import { getReportStatusLabel } from '../../shared/lib/reportStatus';
 import { readUserSettings, saveLastMlTemplateId } from '../../shared/lib/userSettings';
 import type { Report } from '../../shared/types/report';
 import type { TemplatePredictionResult } from '../../shared/types/ml-pipeline';
@@ -274,7 +275,7 @@ export default function UploadReportPage() {
 
           <div className="form-meta-card">
             <div className="form-meta-label">Статус</div>
-            <div className="form-meta-value">{report.status}</div>
+            <div className="form-meta-value">{getReportStatusLabel(report.status)}</div>
           </div>
         </div>
 

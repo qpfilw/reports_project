@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Form, Spinner } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthProvider';
+import { useThemeMode } from '../../app/providers/ThemeProvider';
 import { projectsApi } from '../api/projects';
 import { reportsApi } from '../api/reports';
 import { getReportStatusLabel } from '../lib/reportStatus';
@@ -87,6 +88,7 @@ function buildReportItems(reports: Report[]): SearchResultItem[] {
 export function TopSearchBar() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { themeMode, setThemeMode } = useThemeMode();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const hasLoadedRef = useRef(false);
 
@@ -336,6 +338,18 @@ export function TopSearchBar() {
         </div>
 
         <div className="top-bar-actions">
+          <button
+            type="button"
+            className={`theme-toggle-button ${themeMode === 'dark' ? 'theme-toggle-button-active' : ''}`}
+            onClick={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+            title={themeMode === 'dark' ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
+            aria-label={themeMode === 'dark' ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
+          >
+            <span className="theme-toggle-icon" aria-hidden="true">
+              {themeMode === 'dark' ? '☾' : '☀'}
+            </span>
+            <span className="theme-toggle-label">{themeMode === 'dark' ? 'Тёмная' : 'Светлая'}</span>
+          </button>
           <ProjectSwitcher />
           <NotificationsBell />
         </div>

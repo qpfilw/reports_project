@@ -12,6 +12,7 @@ import {
 } from 'chart.js';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthProvider';
+import { useThemeMode } from '../../app/providers/ThemeProvider';
 import { useProjectContext } from '../../features/projects/ProjectContext';
 import { analyticsApi } from '../../shared/api/analytics';
 import { exportsApi } from '../../shared/api/exports';
@@ -132,6 +133,7 @@ function getDashboardSavedStatusFilter(dashboard: Dashboard): string {
 export default function AnalyticsPage() {
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { themeMode } = useThemeMode();
   const { activeProjectId, activeProject } = useProjectContext();
   const settings = readUserSettings();
 
@@ -368,6 +370,60 @@ export default function AnalyticsPage() {
       ],
     };
   }, [aggregatedSummaryMetrics]);
+
+  const commonChartOptions = useMemo(() => {
+    const gridColor = themeMode === 'dark' ? 'rgba(164, 175, 191, 0.14)' : 'rgba(123, 128, 138, 0.16)';
+    const tickColor = themeMode === 'dark' ? '#e8edf5' : '#24262b';
+    const mutedColor = themeMode === 'dark' ? '#a4afbf' : '#7b808a';
+
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          labels: {
+            color: tickColor,
+          },
+        },
+      },
+      scales: {
+        x: {
+          ticks: {
+            color: mutedColor,
+          },
+          grid: {
+            color: gridColor,
+          },
+          border: {
+            color: gridColor,
+          },
+        },
+        y: {
+          ticks: {
+            color: mutedColor,
+          },
+          grid: {
+            color: gridColor,
+          },
+          border: {
+            color: gridColor,
+          },
+        },
+      },
+    };
+  }, [themeMode]);
+
+  const doughnutChartOptions = useMemo(() => ({
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        labels: {
+          color: themeMode === 'dark' ? '#e8edf5' : '#24262b',
+        },
+      },
+    },
+  }), [themeMode]);
 
   const latestResults = useMemo(() => {
     return [...filteredResults]
@@ -786,7 +842,7 @@ export default function AnalyticsPage() {
                   <div className="analytics-card h-100">
                     <div className="analytics-card-title">Распределение по статусам</div>
                     <div className="analytics-chart-wrap">
-                      <Doughnut data={statusChartData} />
+                      <Doughnut data={statusChartData} options={doughnutChartOptions} />
                     </div>
                   </div>
                 </Col>
@@ -797,7 +853,7 @@ export default function AnalyticsPage() {
                   <div className="analytics-card h-100">
                     <div className="analytics-card-title">Динамика по периодам</div>
                     <div className="analytics-chart-wrap">
-                      <Bar data={periodRowsChartData} />
+                      <Bar data={periodRowsChartData} options={commonChartOptions} />
                     </div>
                   </div>
                 </Col>
@@ -810,7 +866,7 @@ export default function AnalyticsPage() {
                   <div className="analytics-card h-100">
                     <div className="analytics-card-title">Объём данных по отчётам</div>
                     <div className="analytics-chart-wrap">
-                      <Bar data={rowsChartData} />
+                      <Bar data={rowsChartData} options={commonChartOptions} />
                     </div>
                   </div>
                 </Col>
@@ -830,7 +886,7 @@ export default function AnalyticsPage() {
                     ) : (
                       <>
                         <div className="analytics-chart-wrap">
-                          <Bar data={summaryMetricsChartData} />
+                          <Bar data={summaryMetricsChartData} options={commonChartOptions} />
                         </div>
 
                         <div className="analytics-mini-list">

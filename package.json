@@ -1,5 +1,16 @@
 {
   "devDependencies": {
     "@types/node": "^25.5.0"
+  },
+  "scripts": {
+    "dev": "docker compose up --build",
+    "dev:detached": "docker compose up --build -d",
+    "stop": "docker compose down",
+    "logs": "docker compose logs -f",
+    "restart": "docker compose restart",
+    "reset": "docker compose down -v",
+    "backend:shell": "docker compose exec backend sh",
+    "db:shell": "docker compose exec db psql -U postgres -d reporting_db",
+    "make-admin": "docker compose exec backend python -m scripts.create_admin"
   }
 }
