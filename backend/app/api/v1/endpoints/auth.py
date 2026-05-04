@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -14,7 +14,7 @@ from app.core.security import (
     hash_password,
     verify_password,
 )
-from app.models.enums import RoleCodeEnum
+from app.models.enums import AuditActionEnum, AuditEntityTypeEnum, RoleCodeEnum
 from app.models.role import Role
 from app.models.user import User
 from app.schemas.auth import (
@@ -27,6 +27,7 @@ from app.schemas.auth import (
     UpdateMeRequest,
 )
 from app.schemas.user import UserDetailRead
+from app.services.audit_service import write_audit_log
 
 router = APIRouter()
 
@@ -97,7 +98,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthRes
 
 
 @router.post("/login", response_model=AuthResponse)
-def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> AuthResponse:
     stmt = (
         select(User)
         .options(selectinload(User.role))
@@ -123,7 +124,18 @@ def login(payload: LoginRequest, db: Session = Depends(get_db)) -> AuthResponse:
             detail="User is blocked.",
         )
 
+    previous_login = user.last_login_at
     user.last_login_at = datetime.now(timezone.utc)
+    write_audit_log(
+        db,
+        action=AuditActionEnum.LOGIN,
+        entity_type=AuditEntityTypeEnum.USER,
+        entity_id=user.id,
+        user_id=user.id,
+        before_json={"last_login_at": previous_login},
+        after_json={"last_login_at": user.last_login_at},
+        request=request,
+    )
     db.commit()
     db.refresh(user)
 

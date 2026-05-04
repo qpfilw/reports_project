@@ -7,7 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /workspace/backend
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends gcc \
+    && apt-get install -y --no-install-recommends gcc fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements/base.txt requirements/base.txt

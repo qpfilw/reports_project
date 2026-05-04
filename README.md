@@ -54,7 +54,3 @@ npm run make-admin
 - запускает FastAPI через Uvicorn;
 - запускает Celery worker;
 - запускает React/Vite frontend.
-
-## Важная правка
-
-В архиве также есть исправленный `backend/app/core/config.py`: alias для JWT-секретов заменены на `JWT_SECRET_KEY` и `JWT_REFRESH_SECRET_KEY`. Без этой правки переменные окружения из Compose и `.env` могут не подхватываться корректно.

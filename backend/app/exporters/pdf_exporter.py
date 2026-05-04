@@ -1,6 +1,7 @@
 from __future__ import annotations
 from html import escape
 from pathlib import Path
+import logging
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -13,6 +14,7 @@ from app.exporters.formatting import format_export_text
 
 _FONT_NAME = "Helvetica"
 _FONT_REGISTERED = False
+logger = logging.getLogger(__name__)
 
 
 def _candidate_font_paths() -> list[Path]:
@@ -21,6 +23,8 @@ def _candidate_font_paths() -> list[Path]:
         Path("C:/Windows/Fonts/tahoma.ttf"),
         Path("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"),
         Path("/usr/share/fonts/dejavu/DejaVuSans.ttf"),
+        Path("/usr/share/fonts/truetype/liberation2/LiberationSans-Regular.ttf"),
+        Path("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf"),
     ]
 
 def _ensure_unicode_font() -> str:
@@ -29,12 +33,21 @@ def _ensure_unicode_font() -> str:
         return _FONT_NAME
 
     for font_path in _candidate_font_paths():
-        if font_path.exists():
+        if not font_path.exists():
+            continue
+        try:
             pdfmetrics.registerFont(TTFont("AppUnicode", str(font_path)))
             _FONT_NAME = "AppUnicode"
             _FONT_REGISTERED = True
+            logger.info("PDF export font registered: %s", font_path)
             return _FONT_NAME
+        except Exception as exc:  # pragma: no cover - defensive logging for host-specific font issues
+            logger.warning("Failed to register PDF export font %s: %s", font_path, exc)
 
+    logger.warning(
+        "Unicode font for PDF export was not found. Falling back to %s; Cyrillic text may render incorrectly.",
+        _FONT_NAME,
+    )
     _FONT_REGISTERED = True
     return _FONT_NAME
 

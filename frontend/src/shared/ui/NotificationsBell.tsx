@@ -14,7 +14,7 @@ import bellIcon from '../../assets/icons/notification.png';
 function formatDateTime(value?: string | null) {
   if (!value) return '—';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ru-RU');
 }
 
 export function NotificationsBell() {
@@ -92,10 +92,11 @@ export function NotificationsBell() {
   };
 
   return (
-    <Dropdown align="end" className="notification-bell-dropdown">
+    <Dropdown align="end">
       <Dropdown.Toggle className="notification-bell-button" id="notifications-dropdown">
         <img src={bellIcon} alt="Уведомления" className="notification-bell-image" />
         {unreadCount > 0 ? <Badge pill bg="primary">{unreadCount}</Badge> : null}
+        <span className="notification-bell-caret" aria-hidden="true">▾</span>
       </Dropdown.Toggle>
 
       <Dropdown.Menu className="notification-dropdown-menu">

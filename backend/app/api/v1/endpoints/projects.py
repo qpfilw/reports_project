@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -15,7 +15,7 @@ from app.core.access import (
     get_project_or_404,
     is_admin,
 )
-from app.models.enums import ProjectAccessStatusEnum, ProjectMemberRoleEnum, RoleCodeEnum
+from app.models.enums import AuditActionEnum, AuditEntityTypeEnum, ProjectAccessStatusEnum, ProjectMemberRoleEnum, RoleCodeEnum
 from app.models.project import Project
 from app.models.project_member import ProjectMember
 from app.models.role import Role
@@ -33,6 +33,7 @@ from app.schemas.project import (
     ProjectUpdate,
 )
 from app.schemas.user import UserShortRead
+from app.services.audit_service import write_audit_log
 
 router = APIRouter(dependencies=[Depends(require_approved_user)])
 
@@ -107,6 +108,7 @@ def get_my_project_access(
 @router.post("/", response_model=ProjectDetailRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_manager_user)])
 def create_project(
     payload: ProjectCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_manager_user),
 ) -> Project:
@@ -154,6 +156,17 @@ def create_project(
     )
     db.add(owner_member)
 
+    write_audit_log(
+        db,
+        action=AuditActionEnum.CREATE,
+        entity_type=AuditEntityTypeEnum.PROJECT,
+        entity_id=project.id,
+        user_id=current_user.id,
+        project_id=project.id,
+        after_json={"name": project.name, "code": project.code, "owner_id": project.owner_id},
+        request=request,
+    )
+
     db.commit()
     db.refresh(project)
     return _get_project_detail_or_404(db, project.id)
@@ -163,6 +176,7 @@ def create_project(
 def update_project(
     project_id: int,
     payload: ProjectUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_manager_user),
 ) -> Project:
@@ -186,8 +200,21 @@ def update_project(
         if existing is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Project name already exists for this owner.")
 
+    before_state = {"name": project.name, "code": project.code, "description": project.description, "is_archived": project.is_archived}
     for field, value in data.items():
         setattr(project, field, value)
+
+    write_audit_log(
+        db,
+        action=AuditActionEnum.UPDATE,
+        entity_type=AuditEntityTypeEnum.PROJECT,
+        entity_id=project.id,
+        user_id=current_user.id,
+        project_id=project.id,
+        before_json=before_state,
+        after_json={"name": project.name, "code": project.code, "description": project.description, "is_archived": project.is_archived},
+        request=request,
+    )
 
     db.commit()
     db.refresh(project)

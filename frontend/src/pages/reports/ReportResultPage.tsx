@@ -95,7 +95,7 @@ const WORKFLOW_ACTION_META: Record<
 function formatDateTime(value?: string | null) {
   if (!value) return '-';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ru-RU');
 }
 
 function formatBytes(value: number) {
@@ -180,22 +180,22 @@ function renderAggregation(value: unknown) {
   return (
     <div className="summary-aggregation">
       <div className="summary-aggregation-top">
-        {rows !== undefined && (
-          <div className="summary-aggregation-stat summary-aggregation-stat-card">
+        {rows !== undefined ? (
+          <div className="summary-aggregation-stat">
             <div className="summary-aggregation-stat-label">Количество строк</div>
             <div className="summary-aggregation-stat-value">{String(rows)}</div>
           </div>
-        )}
+        ) : null}
 
-        {columns !== undefined && (
-          <div className="summary-aggregation-stat summary-aggregation-stat-card">
+        {columns !== undefined ? (
+          <div className="summary-aggregation-stat">
             <div className="summary-aggregation-stat-label">Количество столбцов</div>
             <div className="summary-aggregation-stat-value">{String(columns)}</div>
           </div>
-        )}
+        ) : null}
       </div>
 
-      {numericColumns && (
+      {numericColumns ? (
         <div className="summary-aggregation-section">
           <div className="summary-aggregation-section-title">Числовые столбцы</div>
 
@@ -220,7 +220,7 @@ function renderAggregation(value: unknown) {
             })}
           </div>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
@@ -612,7 +612,7 @@ export default function ReportResultPage() {
             <div className="form-meta-card">
               <div className="form-meta-label">Период</div>
               <div className="form-meta-value">
-                {report.report_period_start} - {report.report_period_end}
+                {formatDateTime(report.report_period_start)} - {formatDateTime(report.report_period_end)}
               </div>
             </div>
           </div>

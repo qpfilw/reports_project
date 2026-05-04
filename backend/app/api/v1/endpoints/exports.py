@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -13,6 +13,8 @@ from app.models.processing_task import ProcessingTask
 from app.models.report import Report
 from app.models.user import User
 from app.schemas.export import ExportArtifactCreate, ExportArtifactDetailRead, ExportArtifactRead, ExportRequest
+from app.services.audit_service import write_audit_log
+from app.models.enums import AuditActionEnum, AuditEntityTypeEnum
 from app.services.export_service import ExportService
 from app.utils.storage import resolve_storage_path
 
@@ -112,6 +114,7 @@ def download_export(
 )
 def run_export(
     payload: ExportRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_operator_user),
 ) -> ExportArtifact:
@@ -133,6 +136,17 @@ def run_export(
         export_format=payload.format,
         created_by=current_user,
     )
+    write_audit_log(
+        db,
+        action=AuditActionEnum.EXPORT,
+        entity_type=AuditEntityTypeEnum.REPORT,
+        entity_id=report.id,
+        user_id=current_user.id,
+        project_id=report.project_id,
+        after_json={"export_id": artifact.id, "format": artifact.format, "task_id": task.id},
+        request=request,
+    )
+    db.commit()
     return _get_export_detail_or_404(db, artifact.id)
 
 

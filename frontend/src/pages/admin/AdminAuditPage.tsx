@@ -23,7 +23,7 @@ import type { AuditAction, AuditEntityType, AuditLog, AuditLogDetail } from '../
 function formatDateTime(value?: string | null) {
   if (!value) return '—';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ru-RU');
 }
 
 function stringifyJson(value: Record<string, unknown> | null) {
@@ -277,7 +277,7 @@ export default function AdminAuditPage() {
                   <thead>
                     <tr>
                       <th>ID</th>
-                      <th>Дата и время</th>
+                      <th>Дата</th>
                       <th>Действие</th>
                       <th>Сущность</th>
                       <th>Пользователь</th>
@@ -349,7 +349,7 @@ export default function AdminAuditPage() {
 
           {!isDetailLoading && !detailError && selectedAudit ? (
             <div className="audit-detail-grid">
-              <div><strong>Дата и время:</strong> {formatDateTime(selectedAudit.created_at)}</div>
+              <div><strong>Дата:</strong> {formatDateTime(selectedAudit.created_at)}</div>
               <div><strong>Действие:</strong> {getAuditActionLabel(selectedAudit.action)}</div>
               <div><strong>Сущность:</strong> {getAuditEntityLabel(selectedAudit.entity_type)}</div>
               <div><strong>ID сущности:</strong> {selectedAudit.entity_id ?? '—'}</div>

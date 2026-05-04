@@ -20,7 +20,7 @@ const APPROVE_ROLE_OPTIONS: RoleCode[] = ['viewer', 'operator', 'manager'];
 function formatDateTime(value?: string | null) {
   if (!value) return '-';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ru-RU');
 }
 
 

@@ -682,7 +682,9 @@ a {
 }
 
 .form-shell {
+  width: 100%;
   max-width: 980px;
+  margin: 0 auto;
 }
 
 .page-form-shell {
@@ -3727,3 +3729,108 @@ select.soft-input {
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%23cbd5e1' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
 }
 
+
+
+/* Final fixes for dark mode and centered form pages */
+.content-card-body > .form-shell,
+.content-card-body > .page-form-shell,
+.content-card-body > .page-content-centered {
+  margin-left: auto;
+  margin-right: auto;
+}
+
+:root[data-theme='dark'] .audit-json-pre {
+  background: #111827 !important;
+  color: var(--text-main) !important;
+  border-color: #243244 !important;
+}
+
+:root[data-theme='dark'] .upload-panel,
+:root[data-theme='dark'] .task-progress-card {
+  background: #111827 !important;
+  border-color: #243244 !important;
+  color: var(--text-main) !important;
+}
+
+:root[data-theme='dark'] .progress {
+  background: #0f172a !important;
+  border: 1px solid #243244;
+}
+
+:root[data-theme='dark'] .progress-bar {
+  background: linear-gradient(90deg, #3b82f6, #2563eb) !important;
+  color: #fff !important;
+}
+
+input[type='file'].soft-input {
+  padding: 0;
+  overflow: hidden;
+}
+
+input[type='file'].soft-input::file-selector-button {
+  height: 100%;
+  padding: 0 16px;
+  margin-right: 12px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: #f4f6f9;
+  color: var(--text-main);
+  font-family: "Montserrat", Arial, sans-serif;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+:root[data-theme='dark'] input[type='file'].soft-input::file-selector-button {
+  background: #0f172a !important;
+  color: var(--text-main) !important;
+  border-right-color: #243244 !important;
+}
+
+:root[data-theme='dark'] input[type='file'].soft-input {
+  background: #111827 !important;
+  color: var(--text-main) !important;
+}
+
+:root[data-theme='dark'] .summary-aggregation-stat,
+:root[data-theme='dark'] .summary-metric-card,
+:root[data-theme='dark'] .result-summary-item,
+:root[data-theme='dark'] .summary-aggregation,
+:root[data-theme='dark'] .summary-aggregation-top,
+:root[data-theme='dark'] .summary-aggregation-section,
+:root[data-theme='dark'] .summary-metric-grid,
+:root[data-theme='dark'] .summary-metric-card-body {
+  background: transparent !important;
+}
+
+:root[data-theme='dark'] .summary-aggregation-stat,
+:root[data-theme='dark'] .summary-metric-card {
+  background: #111827 !important;
+  border-color: #243244 !important;
+}
+
+:root[data-theme='dark'] .summary-aggregation-stat-label,
+:root[data-theme='dark'] .summary-metric-row-label,
+:root[data-theme='dark'] .result-summary-key {
+  color: var(--text-muted) !important;
+}
+
+:root[data-theme='dark'] .summary-aggregation-stat-value,
+:root[data-theme='dark'] .summary-metric-card-title,
+:root[data-theme='dark'] .summary-metric-row-value,
+:root[data-theme='dark'] .summary-aggregation-section-title {
+  color: var(--text-main) !important;
+}
+
+:root[data-theme='dark'] .upload-panel .form-label,
+:root[data-theme='dark'] .task-progress-card .form-meta-label,
+:root[data-theme='dark'] .task-progress-meta,
+:root[data-theme='dark'] .upload-panel .form-text {
+  color: var(--text-muted) !important;
+}
+
+:root[data-theme='dark'] .upload-panel .action-dock,
+:root[data-theme='dark'] .task-progress-card .alert,
+:root[data-theme='dark'] .task-progress-card .alert-warning {
+  background: #141922 !important;
+  border-color: #243244 !important;
+}

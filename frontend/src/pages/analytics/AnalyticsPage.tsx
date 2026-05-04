@@ -100,7 +100,7 @@ function resolvePeriodCutoff(period: '30d' | '90d' | '180d' | '365d') {
 function formatDateTime(value?: string | null) {
   if (!value) return '—';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ru-RU');
 }
 
 function formatRows(value: number) {
@@ -281,6 +281,32 @@ export default function AnalyticsPage() {
     return new Map(reports.map((item) => [item.id, item.title]));
   }, [reports]);
 
+  const chartPalette = useMemo(() => {
+    if (themeMode === 'dark') {
+      return {
+        primary: 'rgba(77, 125, 255, 0.72)',
+        primaryBorder: '#7aa2ff',
+        accent: 'rgba(34, 197, 94, 0.66)',
+        accentBorder: '#6ee7a0',
+        muted: 'rgba(148, 163, 184, 0.72)',
+        mutedBorder: '#cbd5e1',
+        ring: ['rgba(77, 125, 255, 0.82)', 'rgba(34, 197, 94, 0.78)', 'rgba(245, 158, 11, 0.78)', 'rgba(239, 68, 68, 0.78)', 'rgba(168, 85, 247, 0.78)', 'rgba(14, 165, 233, 0.78)'],
+        border: '#0f172a',
+      };
+    }
+
+    return {
+      primary: 'rgba(47, 102, 245, 0.72)',
+      primaryBorder: '#2f66f5',
+      accent: 'rgba(25, 135, 84, 0.68)',
+      accentBorder: '#198754',
+      muted: 'rgba(123, 128, 138, 0.5)',
+      mutedBorder: '#7b808a',
+      ring: ['rgba(47, 102, 245, 0.8)', 'rgba(25, 135, 84, 0.76)', 'rgba(255, 153, 0, 0.74)', 'rgba(220, 53, 69, 0.74)', 'rgba(111, 66, 193, 0.74)', 'rgba(13, 110, 253, 0.74)'],
+      border: '#ffffff',
+    };
+  }, [themeMode]);
+
   const periodRowsChartData = useMemo(() => {
     const reportMap = new Map(filteredReports.map((item) => [item.id, item]));
     const counters = new Map<string, number>();
@@ -301,10 +327,15 @@ export default function AnalyticsPage() {
         {
           label: 'Строки нормализации',
           data: sortedEntries.map(([, value]) => value),
+          backgroundColor: chartPalette.primary,
+          borderColor: chartPalette.primaryBorder,
+          borderWidth: 1,
+          borderRadius: 10,
+          maxBarThickness: 58,
         },
       ],
     };
-  }, [filteredReports, filteredResults]);
+  }, [chartPalette.primary, chartPalette.primaryBorder, filteredReports, filteredResults]);
 
   const statusChartData = useMemo(() => {
     const counters = new Map<string, number>();
@@ -319,6 +350,10 @@ export default function AnalyticsPage() {
         {
           label: 'Количество отчётов',
           data: Array.from(counters.values()),
+          backgroundColor: chartPalette.ring,
+          borderColor: chartPalette.border,
+          borderWidth: 2,
+          hoverOffset: 6,
         },
       ],
     };
@@ -337,10 +372,15 @@ export default function AnalyticsPage() {
         {
           label: 'Количество строк',
           data: topResults.map((item) => item.rows_count),
+          backgroundColor: chartPalette.accent,
+          borderColor: chartPalette.accentBorder,
+          borderWidth: 1,
+          borderRadius: 10,
+          maxBarThickness: 58,
         },
       ],
     };
-  }, [filteredResults, reportTitleMap]);
+  }, [chartPalette.accent, chartPalette.accentBorder, filteredResults, reportTitleMap]);
 
   const aggregatedSummaryMetrics = useMemo(() => {
     const totals = new Map<string, number>();
@@ -366,10 +406,15 @@ export default function AnalyticsPage() {
         {
           label: 'Суммарное значение',
           data: aggregatedSummaryMetrics.map((item) => item.value),
+          backgroundColor: chartPalette.muted,
+          borderColor: chartPalette.mutedBorder,
+          borderWidth: 1,
+          borderRadius: 10,
+          maxBarThickness: 58,
         },
       ],
     };
-  }, [aggregatedSummaryMetrics]);
+  }, [aggregatedSummaryMetrics, chartPalette.muted, chartPalette.mutedBorder]);
 
   const commonChartOptions = useMemo(() => {
     const gridColor = themeMode === 'dark' ? 'rgba(164, 175, 191, 0.14)' : 'rgba(123, 128, 138, 0.16)';
@@ -379,10 +424,15 @@ export default function AnalyticsPage() {
     return {
       responsive: true,
       maintainAspectRatio: false,
+      animation: {
+        duration: 260,
+      },
       plugins: {
         legend: {
           labels: {
             color: tickColor,
+            boxWidth: 18,
+            boxHeight: 10,
           },
         },
       },
@@ -399,6 +449,7 @@ export default function AnalyticsPage() {
           },
         },
         y: {
+          beginAtZero: true,
           ticks: {
             color: mutedColor,
           },
@@ -416,10 +467,16 @@ export default function AnalyticsPage() {
   const doughnutChartOptions = useMemo(() => ({
     responsive: true,
     maintainAspectRatio: false,
+    cutout: '52%',
+    animation: {
+      duration: 260,
+    },
     plugins: {
       legend: {
         labels: {
           color: themeMode === 'dark' ? '#e8edf5' : '#24262b',
+          boxWidth: 18,
+          boxHeight: 10,
         },
       },
     },

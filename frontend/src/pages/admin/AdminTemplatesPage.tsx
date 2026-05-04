@@ -9,7 +9,7 @@ import {
   getTemplateTypeDescription,
   getTemplateTypeLabel,
 } from '../../shared/lib/templateLabels';
-import type { CreateReportTypePayload, ReportType } from '../../shared/types/report-type';
+import type { ReportType } from '../../shared/types/report-type';
 import {
   TEMPLATE_TYPE_OPTIONS,
   type CreateMlTemplatePayload,
@@ -42,23 +42,7 @@ interface JsonValidationState {
   message: string;
 }
 
-interface ReportTypeFormState {
-  code: string;
-  name: string;
-  description: string;
-  schema_version: string;
-  is_active: boolean;
-}
-
 const INITIAL_TEMPLATE_TYPE: TemplateType = 'classification';
-
-const INITIAL_REPORT_TYPE_FORM: ReportTypeFormState = {
-  code: '',
-  name: '',
-  description: '',
-  schema_version: '1.0',
-  is_active: true,
-};
 
 function prettyJson(value: Record<string, unknown>) {
   return JSON.stringify(value ?? {}, null, 2);
@@ -107,7 +91,7 @@ function buildFormState(template?: MlTemplateDetail | null): TemplateFormState {
 function formatDateTime(value?: string | null) {
   if (!value) return '-';
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ru-RU');
 }
 
 function parseJsonField(value: string, fieldLabel: string) {
@@ -151,12 +135,9 @@ export default function AdminTemplatesPage() {
   const [showFormModal, setShowFormModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
-  const [showReportTypeModal, setShowReportTypeModal] = useState(false);
-  const [reportTypeForm, setReportTypeForm] = useState<ReportTypeFormState>(INITIAL_REPORT_TYPE_FORM);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isSubmittingReportType, setIsSubmittingReportType] = useState(false);
 
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -250,18 +231,6 @@ export default function AdminTemplatesPage() {
     setShowFormModal(true);
     setError('');
     setSuccessMessage('');
-  };
-
-  const openReportTypeModal = () => {
-    setReportTypeForm(INITIAL_REPORT_TYPE_FORM);
-    setShowReportTypeModal(true);
-    setError('');
-    setSuccessMessage('');
-  };
-
-  const closeReportTypeModal = () => {
-    setShowReportTypeModal(false);
-    setReportTypeForm(INITIAL_REPORT_TYPE_FORM);
   };
 
   const openEditModal = async (templateId: number) => {
@@ -380,48 +349,6 @@ export default function AdminTemplatesPage() {
     }
   };
 
-  const handleCreateReportType = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setError('');
-    setSuccessMessage('');
-
-    if (!reportTypeForm.code.trim()) {
-      setError('Укажи код типа отчётности.');
-      return;
-    }
-
-    if (!reportTypeForm.name.trim()) {
-      setError('Укажи название типа отчётности.');
-      return;
-    }
-
-    try {
-      setIsSubmittingReportType(true);
-
-      const payload: CreateReportTypePayload = {
-        code: reportTypeForm.code.trim(),
-        name: reportTypeForm.name.trim(),
-        description: reportTypeForm.description.trim() || null,
-        schema_version: reportTypeForm.schema_version.trim() || '1.0',
-        is_active: reportTypeForm.is_active,
-      };
-
-      const created = await reportTypesApi.create(payload);
-      await loadTemplatesData();
-      setFormState((prev) => ({ ...prev, target_report_type_id: String(created.id) }));
-      setSuccessMessage('Тип отчётности успешно создан.');
-      closeReportTypeModal();
-    } catch (err) {
-      if (err instanceof Error) {
-        setError(err.message);
-      } else {
-        setError('Не удалось создать тип отчётности.');
-      }
-    } finally {
-      setIsSubmittingReportType(false);
-    }
-  };
-
   return (
     <>
       <ContentCard
@@ -434,9 +361,6 @@ export default function AdminTemplatesPage() {
             <div className="admin-header-actions">
               <Button className="secondary-pill-button" onClick={() => navigate('/admin')}>
                 Назад
-              </Button>
-              <Button className="secondary-pill-button" onClick={openReportTypeModal}>
-                Создать тип отчётности
               </Button>
               <Button className="primary-pill-button" onClick={openCreateModal}>
                 Создать шаблон
@@ -664,16 +588,7 @@ export default function AdminTemplatesPage() {
 
                 <Col md={6}>
                   <Form.Group>
-                    <div className="template-field-header">
-                      <Form.Label>Тип отчётности</Form.Label>
-                      <button
-                        type="button"
-                        className="template-inline-link"
-                        onClick={openReportTypeModal}
-                      >
-                        Создать тип
-                      </button>
-                    </div>
+                    <Form.Label>Тип отчётности</Form.Label>
                     <Form.Select
                       className="soft-input"
                       value={formState.target_report_type_id}
@@ -686,9 +601,6 @@ export default function AdminTemplatesPage() {
                         </option>
                       ))}
                     </Form.Select>
-                    <Form.Text className="text-muted">
-                      Если нужного типа ещё нет, его можно быстро создать прямо на этой странице.
-                    </Form.Text>
                   </Form.Group>
                 </Col>
 
@@ -845,96 +757,6 @@ export default function AdminTemplatesPage() {
 
             <Button type="submit" className="primary-pill-button" disabled={isSubmitting}>
               {isSubmitting ? 'Сохранение...' : formMode === 'create' ? 'Создать шаблон' : 'Сохранить изменения'}
-            </Button>
-          </Modal.Footer>
-        </Form>
-      </Modal>
-
-
-
-      <Modal show={showReportTypeModal} onHide={closeReportTypeModal} centered>
-        <Modal.Header closeButton>
-          <Modal.Title>Создание типа отчётности</Modal.Title>
-        </Modal.Header>
-
-        <Form onSubmit={handleCreateReportType}>
-          <Modal.Body>
-            <div className="template-helper-panel mb-4">
-              <div className="template-helper-title">Новый тип отчётности</div>
-              <div className="template-helper-text">
-                Создай тип отчётности, чтобы затем использовать его при создании отчётов и привязке ML-шаблонов.
-              </div>
-            </div>
-
-            <Row className="g-3">
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>Код</Form.Label>
-                  <Form.Control
-                    className="soft-input"
-                    value={reportTypeForm.code}
-                    onChange={(event) => setReportTypeForm((prev) => ({ ...prev, code: event.target.value }))}
-                    placeholder="Например: monthly_finance"
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={6}>
-                <Form.Group>
-                  <Form.Label>Версия схемы</Form.Label>
-                  <Form.Control
-                    className="soft-input"
-                    value={reportTypeForm.schema_version}
-                    onChange={(event) => setReportTypeForm((prev) => ({ ...prev, schema_version: event.target.value }))}
-                    placeholder="1.0"
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={12}>
-                <Form.Group>
-                  <Form.Label>Название</Form.Label>
-                  <Form.Control
-                    className="soft-input"
-                    value={reportTypeForm.name}
-                    onChange={(event) => setReportTypeForm((prev) => ({ ...prev, name: event.target.value }))}
-                    placeholder="Например: Ежемесячная финансовая отчётность"
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={12}>
-                <Form.Group>
-                  <Form.Label>Описание</Form.Label>
-                  <Form.Control
-                    as="textarea"
-                    rows={3}
-                    className="soft-input soft-textarea"
-                    value={reportTypeForm.description}
-                    onChange={(event) => setReportTypeForm((prev) => ({ ...prev, description: event.target.value }))}
-                    placeholder="Кратко опиши назначение типа отчётности"
-                  />
-                </Form.Group>
-              </Col>
-
-              <Col md={12}>
-                <Form.Check
-                  type="switch"
-                  id="report-type-active"
-                  label="Тип отчётности активен"
-                  checked={reportTypeForm.is_active}
-                  onChange={(event) => setReportTypeForm((prev) => ({ ...prev, is_active: event.target.checked }))}
-                />
-              </Col>
-            </Row>
-          </Modal.Body>
-
-          <Modal.Footer>
-            <Button type="button" className="secondary-pill-button" onClick={closeReportTypeModal}>
-              Отмена
-            </Button>
-            <Button type="submit" className="primary-pill-button" disabled={isSubmittingReportType}>
-              {isSubmittingReportType ? 'Сохранение...' : 'Создать тип'}
             </Button>
           </Modal.Footer>
         </Form>

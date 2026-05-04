@@ -18,7 +18,7 @@ function formatDate(value?: string | null) {
   if (!value) return '-';
 
   const date = new Date(value);
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('ru-RU');
+  return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ru-RU');
 }
 
 function formatBytes(value: number) {
@@ -269,7 +269,7 @@ export default function UploadReportPage() {
           <div className="form-meta-card">
             <div className="form-meta-label">Период</div>
             <div className="form-meta-value">
-              {report.report_period_start} - {report.report_period_end}
+              {formatDate(report.report_period_start)} - {formatDate(report.report_period_end)}
             </div>
           </div>
 

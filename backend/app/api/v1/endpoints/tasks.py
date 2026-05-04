@@ -1,17 +1,18 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import require_approved_user, get_db, require_operator_user
 from app.core.access import apply_project_scope, ensure_project_read_access, ensure_project_write_access
-from app.models.enums import ProcessingLogLevelEnum, ProcessingStatusEnum
+from app.models.enums import AuditActionEnum, AuditEntityTypeEnum, ProcessingLogLevelEnum, ProcessingStatusEnum
 from app.models.processing_log import ProcessingLog
 from app.models.processing_task import ProcessingTask
 from app.models.report import Report
 from app.schemas.processing import ProcessingTaskDetailRead, ProcessingTaskRead
 from app.schemas.task import TaskProgressResponse, TaskQueueInfo
+from app.services.audit_service import write_audit_log
 
 router = APIRouter(dependencies=[Depends(require_approved_user)])
 
@@ -104,6 +105,7 @@ def get_task_progress(
 @router.post("/{task_id}/retry", response_model=ProcessingTaskDetailRead, dependencies=[Depends(require_operator_user)])
 def retry_task(
     task_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_operator_user),
 ) -> ProcessingTask:
@@ -125,6 +127,16 @@ def retry_task(
         context_json={"retry_count": task.retry_count},
     )
     db.add(log)
+    write_audit_log(
+        db,
+        action=AuditActionEnum.PROCESS_RETRY,
+        entity_type=AuditEntityTypeEnum.TASK,
+        entity_id=task.id,
+        user_id=current_user.id,
+        project_id=task.report.project_id,
+        after_json={"status": task.status, "retry_count": task.retry_count},
+        request=request,
+    )
 
     db.commit()
     db.refresh(task)
@@ -134,6 +146,7 @@ def retry_task(
 @router.post("/{task_id}/cancel", response_model=ProcessingTaskDetailRead, dependencies=[Depends(require_operator_user)])
 def cancel_task(
     task_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user=Depends(require_operator_user),
 ) -> ProcessingTask:
@@ -156,6 +169,16 @@ def cancel_task(
         context_json={},
     )
     db.add(log)
+    write_audit_log(
+        db,
+        action=AuditActionEnum.UPDATE,
+        entity_type=AuditEntityTypeEnum.TASK,
+        entity_id=task.id,
+        user_id=current_user.id,
+        project_id=task.report.project_id,
+        after_json={"status": task.status},
+        request=request,
+    )
 
     db.commit()
     db.refresh(task)

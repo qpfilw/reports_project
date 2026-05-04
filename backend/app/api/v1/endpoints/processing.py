@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import require_approved_user, get_db, require_operator_user
 from app.core.access import apply_project_scope, ensure_project_read_access, ensure_project_write_access
-from app.models.enums import ProcessingStatusEnum
+from app.models.enums import AuditActionEnum, AuditEntityTypeEnum, ProcessingStatusEnum
 from app.models.processing_log import ProcessingLog
 from app.models.processing_task import ProcessingTask
 from app.models.report import Report
@@ -22,6 +22,7 @@ from app.schemas.processing import (
     TaskErrorCreate,
     TaskErrorRead,
 )
+from app.services.audit_service import write_audit_log
 from app.services.processing_service import ProcessingService
 
 router = APIRouter(dependencies=[Depends(require_approved_user)])
@@ -77,6 +78,7 @@ def get_processing_task(
 )
 def create_processing_task(
     payload: ProcessingTaskLaunchRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_operator_user),
 ) -> ProcessingTask:
@@ -95,6 +97,18 @@ def create_processing_task(
         params_json=payload.params_json,
     )
     service.dispatch_processing_task(task_id=task.id)
+    task = _get_task_detail_or_404(db, task.id)
+    write_audit_log(
+        db,
+        action=AuditActionEnum.PROCESS_START,
+        entity_type=AuditEntityTypeEnum.TASK,
+        entity_id=task.id,
+        user_id=current_user.id,
+        project_id=report.project_id,
+        after_json={"report_id": task.report_id, "status": task.status, "priority": task.priority},
+        request=request,
+    )
+    db.commit()
     return _get_task_detail_or_404(db, task.id)
 
 
