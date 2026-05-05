@@ -189,3 +189,146 @@ def run_csv_export(client: TestClient, headers: dict[str, str], *, processing_ta
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+def approve_registered_user(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    *,
+    user_id: int,
+    role_code: str = "viewer",
+) -> dict[str, Any]:
+    response = client.post(
+        f"/api/v1/admin/users/{user_id}/approve",
+        headers=admin_headers,
+        json={"role_code": role_code},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def create_approved_user(
+    client: TestClient,
+    admin_headers: dict[str, str],
+    *,
+    email: str,
+    password: str = "UserPass123!",
+    full_name: str = "Approved User",
+    role_code: str = "viewer",
+) -> tuple[dict[str, str], dict[str, Any], dict[str, Any]]:
+    registered = register_user(
+        client,
+        email=email,
+        password=password,
+        full_name=full_name,
+    )
+    approved = approve_registered_user(
+        client,
+        admin_headers,
+        user_id=registered["user"]["id"],
+        role_code=role_code,
+    )
+    headers, login_payload = login_headers(client, email, password)
+    return headers, login_payload, approved
+
+
+def add_project_member(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    project_id: int,
+    user_id: int,
+    member_role: str = "viewer",
+) -> dict[str, Any]:
+    response = client.post(
+        f"/api/v1/projects/{project_id}/members",
+        headers=headers,
+        json={
+            "user_id": user_id,
+            "member_role": member_role,
+            "request_note": "Added by automated test",
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def update_project_member(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    project_id: int,
+    member_id: int,
+    member_role: str,
+) -> dict[str, Any]:
+    response = client.patch(
+        f"/api/v1/projects/{project_id}/members/{member_id}",
+        headers=headers,
+        json={"member_role": member_role, "review_note": "Updated by automated test"},
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def create_notification(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    user_id: int,
+    title: str = "Test notification",
+    message: str = "Notification created by automated test",
+    type_: str = "system_alert",
+    project_id: int | None = None,
+    report_id: int | None = None,
+    processing_task_id: int | None = None,
+) -> dict[str, Any]:
+    response = client.post(
+        "/api/v1/notifications/",
+        headers=headers,
+        json={
+            "user_id": user_id,
+            "project_id": project_id,
+            "report_id": report_id,
+            "processing_task_id": processing_task_id,
+            "type": type_,
+            "title": title,
+            "message": message,
+            "payload_json": {"source": "pytest"},
+            "is_read": False,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def create_dashboard(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    project_id: int,
+    owner_id: int,
+    name: str = "QA dashboard",
+    report_id: int | None = None,
+    normalized_dataset_id: int | None = None,
+) -> dict[str, Any]:
+    response = client.post(
+        "/api/v1/analytics/dashboards",
+        headers=headers,
+        json={
+            "project_id": project_id,
+            "report_id": report_id,
+            "normalized_dataset_id": normalized_dataset_id,
+            "owner_id": owner_id,
+            "name": name,
+            "description": "Dashboard created by automated test",
+            "dashboard_type": "personal",
+            "source_type": "project_aggregate",
+            "config_json": {"widgets": ["reports", "tasks", "exports"]},
+            "filters_json": {"period": "month"},
+            "layout_json": {"columns": 3},
+            "metrics_json": {"reports": True},
+            "is_shared": False,
+            "is_default": False,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()

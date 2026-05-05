@@ -7,16 +7,16 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import require_approved_user, get_db, require_operator_user
 from app.core.access import apply_project_scope, ensure_project_read_access, ensure_project_write_access
+from app.models.enums import AuditActionEnum, AuditEntityTypeEnum
 from app.models.dashboard import Dashboard
 from app.models.export_artifact import ExportArtifact
 from app.models.processing_task import ProcessingTask
 from app.models.report import Report
 from app.models.user import User
 from app.schemas.export import ExportArtifactCreate, ExportArtifactDetailRead, ExportArtifactRead, ExportRequest
-from app.services.audit_service import write_audit_log
-from app.models.enums import AuditActionEnum, AuditEntityTypeEnum
 from app.services.export_service import ExportService
 from app.utils.storage import resolve_storage_path
+from app.services.audit_service import log_audit, snapshot_export
 
 router = APIRouter(dependencies=[Depends(require_approved_user)])
 
@@ -136,23 +136,15 @@ def run_export(
         export_format=payload.format,
         created_by=current_user,
     )
-    write_audit_log(
-        db,
-        action=AuditActionEnum.EXPORT,
-        entity_type=AuditEntityTypeEnum.REPORT,
-        entity_id=report.id,
-        user_id=current_user.id,
-        project_id=report.project_id,
-        after_json={"export_id": artifact.id, "format": artifact.format, "task_id": task.id},
-        request=request,
-    )
-    db.commit()
+    log_audit(db, action=AuditActionEnum.EXPORT, entity_type=AuditEntityTypeEnum.TASK, entity_id=task.id, actor=current_user, project_id=report.project_id, 
+              after_json={"event": "processing_result_exported", "export_artifact": snapshot_export(artifact), "format": payload.format}, request=request)
     return _get_export_detail_or_404(db, artifact.id)
 
 
 @router.post("/", response_model=ExportArtifactDetailRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_operator_user)])
 def create_export(
     payload: ExportArtifactCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_operator_user),
 ) -> ExportArtifact:
@@ -204,6 +196,10 @@ def create_export(
 
     export = ExportArtifact(**payload.model_dump())
     db.add(export)
+    db.flush()
+    target_entity_type = AuditEntityTypeEnum.DASHBOARD if linked_dashboard is not None else AuditEntityTypeEnum.TASK if linked_task is not None else AuditEntityTypeEnum.REPORT
+    target_entity_id = linked_dashboard.id if linked_dashboard is not None else linked_task.id if linked_task is not None else linked_report.id if linked_report is not None else export.id
+    log_audit(db, action=AuditActionEnum.EXPORT, entity_type=target_entity_type, entity_id=target_entity_id, actor=current_user, project_id=project_id, after_json={"event": "export_artifact_created", **(snapshot_export(export) or {})}, request=request)
     db.commit()
     db.refresh(export)
     return _get_export_detail_or_404(db, export.id)

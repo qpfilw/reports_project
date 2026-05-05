@@ -33,7 +33,7 @@ from app.schemas.project import (
     ProjectUpdate,
 )
 from app.schemas.user import UserShortRead
-from app.services.audit_service import write_audit_log
+from app.services.audit_service import log_audit, snapshot_project, snapshot_project_member
 
 router = APIRouter(dependencies=[Depends(require_approved_user)])
 
@@ -100,6 +100,7 @@ def get_my_project_access(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found.")
 
     membership = get_project_membership(db, project_id=project_id, user_id=current_user.id)
+
     if membership is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project access request was not found.")
     return _get_member_detail_or_404(db, membership.id)
@@ -156,15 +157,8 @@ def create_project(
     )
     db.add(owner_member)
 
-    write_audit_log(
-        db,
-        action=AuditActionEnum.CREATE,
-        entity_type=AuditEntityTypeEnum.PROJECT,
-        entity_id=project.id,
-        user_id=current_user.id,
-        project_id=project.id,
-        after_json={"name": project.name, "code": project.code, "owner_id": project.owner_id},
-        request=request,
+    log_audit(
+        db, action=AuditActionEnum.CREATE, entity_type=AuditEntityTypeEnum.PROJECT, entity_id=project.id, actor=current_user, project_id=project.id, after_json={"event": "project_created", **(snapshot_project(project) or {})}, request=request
     )
 
     db.commit()
@@ -183,6 +177,7 @@ def update_project(
     project = ensure_project_owner_or_admin(db, project_id=project_id, current_user=current_user)
 
     data = payload.model_dump(exclude_unset=True)
+    before_project = snapshot_project(project)
 
     if "code" in data:
         existing = db.scalar(select(Project).where(Project.code == data["code"], Project.id != project_id))
@@ -200,21 +195,11 @@ def update_project(
         if existing is not None:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Project name already exists for this owner.")
 
-    before_state = {"name": project.name, "code": project.code, "description": project.description, "is_archived": project.is_archived}
     for field, value in data.items():
         setattr(project, field, value)
 
-    write_audit_log(
-        db,
-        action=AuditActionEnum.UPDATE,
-        entity_type=AuditEntityTypeEnum.PROJECT,
-        entity_id=project.id,
-        user_id=current_user.id,
-        project_id=project.id,
-        before_json=before_state,
-        after_json={"name": project.name, "code": project.code, "description": project.description, "is_archived": project.is_archived},
-        request=request,
-    )
+    if data:
+        log_audit(db, action=AuditActionEnum.UPDATE, entity_type=AuditEntityTypeEnum.PROJECT, entity_id=project.id, actor=current_user, project_id=project.id, before_json=before_project, after_json={"event": "project_updated", **(snapshot_project(project) or {})}, request=request)
 
     db.commit()
     db.refresh(project)
@@ -278,6 +263,7 @@ def list_available_project_users(
 def request_project_access(
     project_id: int,
     payload: ProjectAccessRequestCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_approved_user),
 ) -> ProjectMember:
@@ -294,6 +280,8 @@ def request_project_access(
     membership = get_project_membership(db, project_id=project_id, user_id=current_user.id)
     if membership is not None and membership.access_status == ProjectAccessStatusEnum.APPROVED:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="You already have approved access to this project.")
+
+    before_member = snapshot_project_member(membership) if membership is not None else None
 
     if membership is None:
         membership = ProjectMember(
@@ -314,6 +302,7 @@ def request_project_access(
         membership.reviewed_at = None
         membership.review_note = None
 
+    log_audit(db, action=AuditActionEnum.SUBMIT, entity_type=AuditEntityTypeEnum.PROJECT, entity_id=project_id, actor=current_user, project_id=project_id, before_json=before_member, after_json={"event": "project_access_requested", **(snapshot_project_member(membership) or {})}, request=request)
     db.commit()
     db.refresh(membership)
     return _get_member_detail_or_404(db, membership.id)
@@ -347,11 +336,13 @@ def approve_project_access_request(
     project_id: int,
     member_id: int,
     payload: ProjectAccessReviewRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_manager_user),
 ) -> ProjectMember:
     ensure_project_owner_or_admin(db, project_id=project_id, current_user=current_user)
     member = db.get(ProjectMember, member_id)
+    before_member = snapshot_project_member(member) if member is not None else None
     if member is None or member.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project member not found.")
 
@@ -364,6 +355,7 @@ def approve_project_access_request(
     if member.added_by is None:
         member.added_by = current_user.id
 
+    log_audit(db, action=AuditActionEnum.APPROVE, entity_type=AuditEntityTypeEnum.PROJECT, entity_id=project_id, actor=current_user, project_id=project_id, before_json=before_member, after_json={"event": "project_access_request_approved", **(snapshot_project_member(member) or {})}, request=request)
     db.commit()
     db.refresh(member)
     return _get_member_detail_or_404(db, member.id)
@@ -374,6 +366,7 @@ def reject_project_access_request(
     project_id: int,
     member_id: int,
     payload: ProjectAccessReviewRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_manager_user),
 ) -> ProjectMember:
@@ -382,10 +375,14 @@ def reject_project_access_request(
     if member is None or member.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project member not found.")
 
+    before_member = snapshot_project_member(member)
+
     member.access_status = ProjectAccessStatusEnum.REJECTED
     member.reviewed_by = current_user.id
     member.reviewed_at = datetime.now(timezone.utc)
     member.review_note = payload.review_note
+
+    log_audit(db, action=AuditActionEnum.REJECT, entity_type=AuditEntityTypeEnum.PROJECT, entity_id=project_id, actor=current_user, project_id=project_id, before_json=before_member, after_json={"event": "project_access_request_rejected", **(snapshot_project_member(member) or {})}, request=request)
 
     db.commit()
     db.refresh(member)
@@ -396,6 +393,7 @@ def reject_project_access_request(
 def add_project_member(
     project_id: int,
     payload: ProjectMemberCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_manager_user),
 ) -> ProjectMember:
@@ -426,6 +424,8 @@ def add_project_member(
         reviewed_at=datetime.now(timezone.utc),
     )
     db.add(member)
+    db.flush()
+    log_audit(db, action=AuditActionEnum.CREATE, entity_type=AuditEntityTypeEnum.PROJECT, entity_id=project_id, actor=current_user, project_id=project_id, after_json={"event": "project_member_added", **(snapshot_project_member(member) or {})}, request=request)
     db.commit()
     db.refresh(member)
     return _get_member_detail_or_404(db, member.id)
@@ -436,6 +436,7 @@ def update_project_member(
     project_id: int,
     member_id: int,
     payload: ProjectMemberUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_manager_user),
 ) -> ProjectMember:
@@ -443,6 +444,8 @@ def update_project_member(
     member = db.get(ProjectMember, member_id)
     if member is None or member.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project member not found.")
+
+    before_member = snapshot_project_member(member)
 
     if member.user_id == project.owner_id and payload.member_role not in {None, ProjectMemberRoleEnum.OWNER}:
         raise HTTPException(
@@ -458,6 +461,9 @@ def update_project_member(
         member.reviewed_by = current_user.id
         member.reviewed_at = datetime.now(timezone.utc)
 
+    if data:
+        log_audit(db, action=AuditActionEnum.UPDATE, entity_type=AuditEntityTypeEnum.PROJECT, entity_id=project_id, actor=current_user, project_id=project_id, before_json=before_member, after_json={"event": "project_member_updated", **(snapshot_project_member(member) or {})}, request=request)
+
     db.commit()
     db.refresh(member)
     return _get_member_detail_or_404(db, member.id)
@@ -467,6 +473,7 @@ def update_project_member(
 def remove_project_member(
     project_id: int,
     member_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_manager_user),
 ) -> MessageSchema:
@@ -475,12 +482,15 @@ def remove_project_member(
     if member is None or member.project_id != project_id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project member not found.")
 
+    before_member = snapshot_project_member(member) if member is not None else None
+
     if member.user_id == project.owner_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Project owner cannot be removed from project members.",
         )
 
+    log_audit(db, action=AuditActionEnum.DELETE, entity_type=AuditEntityTypeEnum.PROJECT, entity_id=project_id, actor=current_user, project_id=project_id, before_json=before_member, after_json={"event": "project_member_removed", "member_id": member_id}, request=request)
     db.delete(member)
     db.commit()
     return MessageSchema(message="Project member removed successfully.")

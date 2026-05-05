@@ -1,12 +1,14 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 from app.schemas.common import MessageSchema
+from app.services.audit_service import log_audit, snapshot_dashboard
 from app.api.deps import require_approved_user, get_db, require_manager_user
 from app.core.access import apply_project_scope, ensure_project_read_access, ensure_project_write_access
 from app.models.dashboard import Dashboard
+from app.models.enums import AuditActionEnum, AuditEntityTypeEnum
 from app.models.export_artifact import ExportArtifact
 from app.models.normalized_dataset import NormalizedDataset
 from app.models.processing_task import ProcessingTask
@@ -65,6 +67,7 @@ def get_dashboard(
 @router.post("/dashboards", response_model=DashboardDetailRead, status_code=status.HTTP_201_CREATED, dependencies=[Depends(require_manager_user)])
 def create_dashboard(
     payload: DashboardCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_manager_user),
 ) -> Dashboard:
@@ -109,6 +112,8 @@ def create_dashboard(
 
     dashboard = Dashboard(**payload.model_dump())
     db.add(dashboard)
+    db.flush()
+    log_audit(db, action=AuditActionEnum.CREATE, entity_type=AuditEntityTypeEnum.DASHBOARD, entity_id=dashboard.id, actor=current_user, project_id=dashboard.project_id, after_json={"event": "dashboard_created", **(snapshot_dashboard(dashboard) or {})}, request=request)
     db.commit()
     db.refresh(dashboard)
     return _get_dashboard_detail_or_404(db, dashboard.id)
@@ -118,6 +123,7 @@ def create_dashboard(
 def update_dashboard(
     dashboard_id: int,
     payload: DashboardUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_manager_user),
 ) -> Dashboard:
@@ -127,6 +133,7 @@ def update_dashboard(
     ensure_project_write_access(db, project_id=dashboard.project_id, current_user=current_user)
 
     data = payload.model_dump(exclude_unset=True)
+    before_dashboard = snapshot_dashboard(dashboard)
 
     target_project_id = data.get("project_id", dashboard.project_id)
 
@@ -165,6 +172,9 @@ def update_dashboard(
     for field, value in data.items():
         setattr(dashboard, field, value)
 
+    if data:
+        log_audit(db, action=AuditActionEnum.UPDATE, entity_type=AuditEntityTypeEnum.DASHBOARD, entity_id=dashboard.id, actor=current_user, project_id=dashboard.project_id, before_json=before_dashboard, after_json={"event": "dashboard_updated", **(snapshot_dashboard(dashboard) or {})}, request=request)
+
     db.commit()
     db.refresh(dashboard)
     return _get_dashboard_detail_or_404(db, dashboard.id)
@@ -176,6 +186,7 @@ def update_dashboard(
 )
 def delete_dashboard(
     dashboard_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_manager_user),
 ) -> MessageSchema:
@@ -184,6 +195,9 @@ def delete_dashboard(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Dashboard not found.")
 
     ensure_project_write_access(db, project_id=dashboard.project_id, current_user=current_user)
+
+    before_dashboard = snapshot_dashboard(dashboard)
+    log_audit(db, action=AuditActionEnum.DELETE, entity_type=AuditEntityTypeEnum.DASHBOARD, entity_id=dashboard.id, actor=current_user, project_id=dashboard.project_id, before_json=before_dashboard, after_json={"event": "dashboard_deleted", "dashboard_id": dashboard.id}, request=request)
 
     db.delete(dashboard)
     db.commit()

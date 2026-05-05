@@ -2,14 +2,14 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_db, require_admin_user
 from app.db.seed import get_role_by_code
 from app.models.audit_log import AuditLog
-from app.models.enums import ProjectAccessStatusEnum, RoleCodeEnum
+from app.models.enums import AuditActionEnum, AuditEntityTypeEnum, ProjectAccessStatusEnum, RoleCodeEnum
 from app.models.notification import Notification
 from app.models.processing_task import ProcessingTask
 from app.models.project import Project
@@ -27,6 +27,7 @@ from app.schemas.admin import (
     AdminUserRoleUpdateRequest,
 )
 from app.schemas.user import UserDetailRead
+from app.services.audit_service import log_audit, snapshot_project_member, snapshot_user
 
 router = APIRouter(dependencies=[Depends(require_admin_user)])
 
@@ -133,9 +134,12 @@ def list_pending_users(db: Session = Depends(get_db)) -> list[User]:
 def approve_user(
     user_id: int,
     payload: AdminUserApprovalRequest,
+    request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
 ) -> User:
     user = _get_user_detail_or_404(db, user_id)
+    before_user = snapshot_user(user)
     if user.role.code != RoleCodeEnum.PENDING:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -153,6 +157,16 @@ def approve_user(
     user.is_active = True
     user.is_blocked = False
 
+    log_audit(
+        db,
+        action=AuditActionEnum.APPROVE,
+        entity_type=AuditEntityTypeEnum.USER,
+        entity_id=user.id,
+        actor=current_user,
+        before_json=before_user,
+        after_json={"event": "user_approved", "approved_role": payload.role_code, **(snapshot_user(user) or {})},
+        request=request,
+    )
     db.commit()
     db.refresh(user)
     return _get_user_detail_or_404(db, user.id)
@@ -162,9 +176,12 @@ def approve_user(
 def reject_user_registration(
     user_id: int,
     payload: AdminUserModerationRequest,
+    request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
 ) -> User:
     user = _get_user_detail_or_404(db, user_id)
+    before_user = snapshot_user(user)
     if user.role.code != RoleCodeEnum.PENDING:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -173,6 +190,16 @@ def reject_user_registration(
 
     user.is_active = False
     user.is_blocked = True
+    log_audit(
+        db,
+        action=AuditActionEnum.REJECT,
+        entity_type=AuditEntityTypeEnum.USER,
+        entity_id=user.id,
+        actor=current_user,
+        before_json=before_user,
+        after_json={"event": "user_registration_rejected", "reason": payload.reason, **(snapshot_user(user) or {})},
+        request=request,
+    )
     db.commit()
     db.refresh(user)
     return _get_user_detail_or_404(db, user.id)
@@ -182,11 +209,24 @@ def reject_user_registration(
 def assign_user_role(
     user_id: int,
     payload: AdminUserRoleUpdateRequest,
+    request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
 ) -> User:
     user = _get_user_detail_or_404(db, user_id)
+    before_user = snapshot_user(user)
     role = _get_role_or_404(db, payload.role_code)
     user.role_id = role.id
+    log_audit(
+        db,
+        action=AuditActionEnum.UPDATE,
+        entity_type=AuditEntityTypeEnum.USER,
+        entity_id=user.id,
+        actor=current_user,
+        before_json=before_user,
+        after_json={"event": "user_role_assigned", "assigned_role": payload.role_code, **(snapshot_user(user) or {})},
+        request=request,
+    )
     db.commit()
     db.refresh(user)
     return _get_user_detail_or_404(db, user.id)
@@ -196,10 +236,23 @@ def assign_user_role(
 def block_user(
     user_id: int,
     payload: AdminUserModerationRequest,
+    request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
 ) -> User:
     user = _get_user_detail_or_404(db, user_id)
+    before_user = snapshot_user(user)
     user.is_blocked = True
+    log_audit(
+        db,
+        action=AuditActionEnum.REJECT,
+        entity_type=AuditEntityTypeEnum.USER,
+        entity_id=user.id,
+        actor=current_user,
+        before_json=before_user,
+        after_json={"event": "user_blocked", "reason": payload.reason, **(snapshot_user(user) or {})},
+        request=request,
+    )
     db.commit()
     db.refresh(user)
     return _get_user_detail_or_404(db, user.id)
@@ -209,11 +262,24 @@ def block_user(
 def unblock_user(
     user_id: int,
     payload: AdminUserModerationRequest,
+    request: Request,
     db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin_user),
 ) -> User:
     user = _get_user_detail_or_404(db, user_id)
+    before_user = snapshot_user(user)
     user.is_blocked = False
     user.is_active = True
+    log_audit(
+        db,
+        action=AuditActionEnum.APPROVE,
+        entity_type=AuditEntityTypeEnum.USER,
+        entity_id=user.id,
+        actor=current_user,
+        before_json=before_user,
+        after_json={"event": "user_unblocked", "reason": payload.reason, **(snapshot_user(user) or {})},
+        request=request,
+    )
     db.commit()
     db.refresh(user)
     return _get_user_detail_or_404(db, user.id)
@@ -245,10 +311,12 @@ def list_project_access_requests(
 def approve_project_access_request(
     member_id: int,
     payload: AdminProjectAccessReviewRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user),
 ) -> ProjectMember:
     member = _get_project_access_request_or_404(db, member_id)
+    before_member = snapshot_project_member(member)
     member.access_status = ProjectAccessStatusEnum.APPROVED
     if payload.member_role is not None:
         member.member_role = payload.member_role
@@ -258,6 +326,17 @@ def approve_project_access_request(
     if member.added_by is None:
         member.added_by = current_user.id
 
+    log_audit(
+        db,
+        action=AuditActionEnum.APPROVE,
+        entity_type=AuditEntityTypeEnum.PROJECT,
+        entity_id=member.project_id,
+        actor=current_user,
+        project_id=member.project_id,
+        before_json=before_member,
+        after_json={"event": "project_access_request_approved", **(snapshot_project_member(member) or {})},
+        request=request,
+    )
     db.commit()
     db.refresh(member)
     return _get_project_access_request_or_404(db, member.id)
@@ -267,15 +346,28 @@ def approve_project_access_request(
 def reject_project_access_request(
     member_id: int,
     payload: AdminProjectAccessReviewRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_admin_user),
 ) -> ProjectMember:
     member = _get_project_access_request_or_404(db, member_id)
+    before_member = snapshot_project_member(member)
     member.access_status = ProjectAccessStatusEnum.REJECTED
     member.reviewed_by = current_user.id
     member.reviewed_at = datetime.now(timezone.utc)
     member.review_note = payload.review_note
 
+    log_audit(
+        db,
+        action=AuditActionEnum.REJECT,
+        entity_type=AuditEntityTypeEnum.PROJECT,
+        entity_id=member.project_id,
+        actor=current_user,
+        project_id=member.project_id,
+        before_json=before_member,
+        after_json={"event": "project_access_request_rejected", **(snapshot_project_member(member) or {})},
+        request=request,
+    )
     db.commit()
     db.refresh(member)
     return _get_project_access_request_or_404(db, member.id)

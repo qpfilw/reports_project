@@ -29,9 +29,9 @@ from app.schemas.report import (
     ReportWorkflowActionRequest,
 )
 from app.schemas.upload import ReportUploadDetailRead
-from app.services.audit_service import write_audit_log
 from app.services.report_service import ReportService
 from app.services.upload_service import UploadService
+from app.services.audit_service import log_audit, snapshot_report, snapshot_report_upload
 
 router = APIRouter(dependencies=[Depends(require_approved_user)])
 
@@ -150,14 +150,14 @@ def create_report(
     report = Report(**payload.model_dump())
     db.add(report)
     db.flush()
-    write_audit_log(
+    log_audit(
         db,
         action=AuditActionEnum.CREATE,
         entity_type=AuditEntityTypeEnum.REPORT,
         entity_id=report.id,
-        user_id=current_user.id,
+        actor=current_user,
         project_id=report.project_id,
-        after_json={"title": report.title, "status": report.status, "report_type_id": report.report_type_id},
+        after_json={"event": "report_created", **(snapshot_report(report) or {})},
         request=request,
     )
     db.commit()
@@ -173,9 +173,9 @@ def create_report(
 )
 def upload_report_file(
     report_id: int,
-    request: Request,
     file: UploadFile = File(...),
     comment: str | None = Form(default=None),
+    request: Request = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_operator_user),
 ):
@@ -189,14 +189,14 @@ def upload_report_file(
         uploaded_by=current_user,
         comment=comment,
     )
-    write_audit_log(
+    log_audit(
         db,
         action=AuditActionEnum.CREATE,
         entity_type=AuditEntityTypeEnum.REPORT_UPLOAD,
         entity_id=upload.id,
-        user_id=current_user.id,
+        actor=current_user,
         project_id=report.project_id,
-        after_json={"filename": upload.original_filename, "upload_version": upload.upload_version, "report_id": report.id},
+        after_json={"event": "report_uploaded", **(snapshot_report_upload(upload) or {})},
         request=request,
     )
     db.commit()
@@ -223,6 +223,7 @@ def update_report(
     report = _get_report_for_update_or_404(db, report_id, current_user)
 
     data = payload.model_dump(exclude_unset=True)
+    before_report = snapshot_report(report)
 
     if "report_type_id" in data and data["report_type_id"] is not None:
         if db.get(ReportType, data["report_type_id"]) is None:
@@ -242,21 +243,11 @@ def update_report(
         report_type_id = data.get("report_type_id", report.report_type_id)
         ensure_template_matches_report_type(template=ml_template, report_type_id=report_type_id)
 
-    before_state = {"title": report.title, "description": report.description, "report_period_start": report.report_period_start, "report_period_end": report.report_period_end, "ml_template_id": report.ml_template_id, "status": report.status}
     for field, value in data.items():
         setattr(report, field, value)
 
-    write_audit_log(
-        db,
-        action=AuditActionEnum.UPDATE,
-        entity_type=AuditEntityTypeEnum.REPORT,
-        entity_id=report.id,
-        user_id=current_user.id,
-        project_id=report.project_id,
-        before_json=before_state,
-        after_json={"title": report.title, "description": report.description, "report_period_start": report.report_period_start, "report_period_end": report.report_period_end, "ml_template_id": report.ml_template_id, "status": report.status},
-        request=request,
-    )
+    if data:
+        log_audit(db, action=AuditActionEnum.UPDATE, entity_type=AuditEntityTypeEnum.REPORT, entity_id=report.id, actor=current_user, project_id=report.project_id, before_json=before_report, after_json={"event": "report_updated", **(snapshot_report(report) or {})}, request=request)
 
     db.commit()
     db.refresh(report)
@@ -267,11 +258,13 @@ def update_report(
 def update_report_status(
     report_id: int,
     payload: ReportStatusUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_operator_user),
 ) -> Report:
     report = _get_report_for_update_or_404(db, report_id, current_user)
 
+    before_report = snapshot_report(report)
     target_status = ReportStatusEnum(payload.status)
     if target_status in MANAGER_ONLY_REPORT_STATUSES:
         require_manager_user(current_user)
@@ -291,6 +284,17 @@ def update_report_status(
         current_assignee_id=payload.current_assignee_id,
         approver_id=payload.approver_id,
     )
+    log_audit(
+        db,
+        action=AuditActionEnum.UPDATE,
+        entity_type=AuditEntityTypeEnum.REPORT,
+        entity_id=report.id,
+        actor=current_user,
+        project_id=report.project_id,
+        before_json=before_report,
+        after_json={"event": "report_status_updated", "target_status": payload.status, **(snapshot_report(report) or {})},
+        request=request,
+    )
     db.commit()
     db.refresh(report)
     return _get_report_detail_or_404(db, report.id)
@@ -305,6 +309,7 @@ def submit_report_for_review(
     current_user: User = Depends(require_operator_user),
 ) -> Report:
     report = _get_report_for_update_or_404(db, report_id, current_user)
+    before_report = snapshot_report(report)
     _validate_related_users(db, project_id=report.project_id, current_assignee_id=payload.current_assignee_id)
 
     service = ReportService(db)
@@ -313,16 +318,7 @@ def submit_report_for_review(
         comment=payload.last_comment,
         current_assignee_id=payload.current_assignee_id,
     )
-    write_audit_log(
-        db,
-        action=AuditActionEnum.SUBMIT,
-        entity_type=AuditEntityTypeEnum.REPORT,
-        entity_id=report.id,
-        user_id=current_user.id,
-        project_id=report.project_id,
-        after_json={"status": report.status, "current_assignee_id": report.current_assignee_id, "last_comment": report.last_comment},
-        request=request,
-    )
+    log_audit(db, action=AuditActionEnum.SUBMIT, entity_type=AuditEntityTypeEnum.REPORT, entity_id=report.id, actor=current_user, project_id=report.project_id, before_json=before_report, after_json={"event": "report_submitted_for_review", **(snapshot_report(report) or {})}, request=request)
     db.commit()
     db.refresh(report)
     return _get_report_detail_or_404(db, report.id)
@@ -337,6 +333,7 @@ def submit_report_for_approval(
     current_user: User = Depends(require_manager_user),
 ) -> Report:
     report = _get_report_for_update_or_404(db, report_id, current_user)
+    before_report = snapshot_report(report)
     _validate_related_users(db, project_id=report.project_id, approver_id=payload.approver_id)
 
     service = ReportService(db)
@@ -345,16 +342,7 @@ def submit_report_for_approval(
         comment=payload.last_comment,
         approver_id=payload.approver_id,
     )
-    write_audit_log(
-        db,
-        action=AuditActionEnum.SUBMIT,
-        entity_type=AuditEntityTypeEnum.REPORT,
-        entity_id=report.id,
-        user_id=current_user.id,
-        project_id=report.project_id,
-        after_json={"status": report.status, "approver_id": report.approver_id, "last_comment": report.last_comment},
-        request=request,
-    )
+    log_audit(db, action=AuditActionEnum.SUBMIT, entity_type=AuditEntityTypeEnum.REPORT, entity_id=report.id, actor=current_user, project_id=report.project_id, before_json=before_report, after_json={"event": "report_submitted_for_approval", **(snapshot_report(report) or {})}, request=request)
     db.commit()
     db.refresh(report)
     return _get_report_detail_or_404(db, report.id)
@@ -369,18 +357,10 @@ def approve_report(
     current_user: User = Depends(require_manager_user),
 ) -> Report:
     report = _get_report_for_update_or_404(db, report_id, current_user)
+    before_report = snapshot_report(report)
     service = ReportService(db)
     service.approve(report, comment=payload.last_comment)
-    write_audit_log(
-        db,
-        action=AuditActionEnum.APPROVE,
-        entity_type=AuditEntityTypeEnum.REPORT,
-        entity_id=report.id,
-        user_id=current_user.id,
-        project_id=report.project_id,
-        after_json={"status": report.status, "approved_at": report.approved_at, "last_comment": report.last_comment},
-        request=request,
-    )
+    log_audit(db, action=AuditActionEnum.APPROVE, entity_type=AuditEntityTypeEnum.REPORT, entity_id=report.id, actor=current_user, project_id=report.project_id, before_json=before_report, after_json={"event": "report_approved", **(snapshot_report(report) or {})}, request=request)
     db.commit()
     db.refresh(report)
     return _get_report_detail_or_404(db, report.id)
@@ -395,18 +375,10 @@ def reject_report(
     current_user: User = Depends(require_manager_user),
 ) -> Report:
     report = _get_report_for_update_or_404(db, report_id, current_user)
+    before_report = snapshot_report(report)
     service = ReportService(db)
     service.reject(report, comment=payload.last_comment)
-    write_audit_log(
-        db,
-        action=AuditActionEnum.REJECT,
-        entity_type=AuditEntityTypeEnum.REPORT,
-        entity_id=report.id,
-        user_id=current_user.id,
-        project_id=report.project_id,
-        after_json={"status": report.status, "rejected_at": report.rejected_at, "last_comment": report.last_comment},
-        request=request,
-    )
+    log_audit(db, action=AuditActionEnum.REJECT, entity_type=AuditEntityTypeEnum.REPORT, entity_id=report.id, actor=current_user, project_id=report.project_id, before_json=before_report, after_json={"event": "report_rejected", **(snapshot_report(report) or {})}, request=request)
     db.commit()
     db.refresh(report)
     return _get_report_detail_or_404(db, report.id)
@@ -421,16 +393,18 @@ def send_report_to_rework(
     current_user: User = Depends(require_operator_user),
 ) -> Report:
     report = _get_report_for_update_or_404(db, report_id, current_user)
+    before_report = snapshot_report(report)
     service = ReportService(db)
     service.send_to_rework(report, comment=payload.last_comment)
-    write_audit_log(
+    log_audit(
         db,
         action=AuditActionEnum.UPDATE,
         entity_type=AuditEntityTypeEnum.REPORT,
         entity_id=report.id,
-        user_id=current_user.id,
+        actor=current_user,
         project_id=report.project_id,
-        after_json={"status": report.status, "last_comment": report.last_comment},
+        before_json=before_report,
+        after_json={"event": "report_sent_to_rework", **(snapshot_report(report) or {})},
         request=request,
     )
     db.commit()

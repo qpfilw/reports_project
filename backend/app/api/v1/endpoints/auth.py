@@ -27,7 +27,7 @@ from app.schemas.auth import (
     UpdateMeRequest,
 )
 from app.schemas.user import UserDetailRead
-from app.services.audit_service import write_audit_log
+from app.services.audit_service import log_audit, snapshot_user
 
 router = APIRouter()
 
@@ -68,7 +68,7 @@ def _get_pending_registration_role(db: Session) -> Role:
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthResponse:
+def register(payload: RegisterRequest, request: Request, db: Session = Depends(get_db)) -> AuthResponse:
     existing_user = db.scalar(select(User).where(User.email == payload.email))
     if existing_user is not None:
         raise HTTPException(
@@ -89,6 +89,16 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> AuthRes
         is_blocked=False,
     )
     db.add(user)
+    db.flush()
+    log_audit(
+        db,
+        action=AuditActionEnum.CREATE,
+        entity_type=AuditEntityTypeEnum.USER,
+        entity_id=user.id,
+        actor=user,
+        after_json={"event": "user_registered", **(snapshot_user(user) or {})},
+        request=request,
+    )
     db.commit()
     db.refresh(user)
 
@@ -124,16 +134,16 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
             detail="User is blocked.",
         )
 
-    previous_login = user.last_login_at
+    before_user = snapshot_user(user)
     user.last_login_at = datetime.now(timezone.utc)
-    write_audit_log(
+    log_audit(
         db,
         action=AuditActionEnum.LOGIN,
         entity_type=AuditEntityTypeEnum.USER,
         entity_id=user.id,
-        user_id=user.id,
-        before_json={"last_login_at": previous_login},
-        after_json={"last_login_at": user.last_login_at},
+        actor=user,
+        before_json=before_user,
+        after_json={"event": "login", **(snapshot_user(user) or {})},
         request=request,
     )
     db.commit()
@@ -169,13 +179,16 @@ def refresh_tokens(payload: RefreshTokenRequest, db: Session = Depends(get_db)) 
 def get_me(current_user: User = Depends(get_current_active_user)) -> UserDetailRead:
     return UserDetailRead.model_validate(current_user)
 
+
 @router.patch("/me", response_model=UserDetailRead)
 def update_me(
     payload: UpdateMeRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_active_user),
 ) -> UserDetailRead:
     data = payload.model_dump(exclude_unset=True)
+    before_user = snapshot_user(current_user)
 
     if "email" in data:
         normalized_email = data["email"].strip().lower()
@@ -198,14 +211,28 @@ def update_me(
     if "department" in data:
         current_user.department = data["department"]
 
+    if data:
+        log_audit(
+            db,
+            action=AuditActionEnum.UPDATE,
+            entity_type=AuditEntityTypeEnum.USER,
+            entity_id=current_user.id,
+            actor=current_user,
+            before_json=before_user,
+            after_json={"event": "profile_updated", **(snapshot_user(current_user) or {})},
+            request=request,
+        )
+
     db.commit()
     db.refresh(current_user)
 
     return UserDetailRead.model_validate(current_user)
 
+
 @router.post("/change-password")
 def change_password(
     payload: ChangePasswordRequest,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_approved_user),
 ) -> dict[str, str]:
@@ -216,6 +243,16 @@ def change_password(
         )
 
     current_user.password_hash = hash_password(payload.new_password)
+    log_audit(
+        db,
+        action=AuditActionEnum.UPDATE,
+        entity_type=AuditEntityTypeEnum.USER,
+        entity_id=current_user.id,
+        actor=current_user,
+        before_json={"event": "password_change_requested", "password_set": True},
+        after_json={"event": "password_changed", "password_changed": True},
+        request=request,
+    )
     db.commit()
 
     return {"message": "Password changed successfully."}

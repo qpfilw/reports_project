@@ -22,8 +22,8 @@ from app.schemas.processing import (
     TaskErrorCreate,
     TaskErrorRead,
 )
-from app.services.audit_service import write_audit_log
 from app.services.processing_service import ProcessingService
+from app.services.audit_service import log_audit, snapshot_processing_task
 
 router = APIRouter(dependencies=[Depends(require_approved_user)])
 
@@ -96,19 +96,8 @@ def create_processing_task(
         priority=payload.priority,
         params_json=payload.params_json,
     )
+    log_audit(db, action=AuditActionEnum.PROCESS_START, entity_type=AuditEntityTypeEnum.TASK, entity_id=task.id, actor=current_user, project_id=report.project_id, after_json={"event": "processing_task_created", **(snapshot_processing_task(task) or {})}, request=request)
     service.dispatch_processing_task(task_id=task.id)
-    task = _get_task_detail_or_404(db, task.id)
-    write_audit_log(
-        db,
-        action=AuditActionEnum.PROCESS_START,
-        entity_type=AuditEntityTypeEnum.TASK,
-        entity_id=task.id,
-        user_id=current_user.id,
-        project_id=report.project_id,
-        after_json={"report_id": task.report_id, "status": task.status, "priority": task.priority},
-        request=request,
-    )
-    db.commit()
     return _get_task_detail_or_404(db, task.id)
 
 
@@ -119,14 +108,17 @@ def create_processing_task(
 )
 def dispatch_existing_processing_task(
     task_id: int,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_operator_user),
 ) -> ProcessingTask:
     task = _get_task_detail_or_404(db, task_id)
     ensure_project_write_access(db, project_id=task.report.project_id, current_user=current_user)
 
+    before_task = snapshot_processing_task(task)
     service = ProcessingService(db)
     service.dispatch_processing_task(task_id=task_id)
+    log_audit(db, action=AuditActionEnum.PROCESS_START, entity_type=AuditEntityTypeEnum.TASK, entity_id=task.id, actor=current_user, project_id=task.report.project_id, before_json=before_task, after_json={"event": "processing_task_dispatched", **(snapshot_processing_task(task) or {})}, request=request)
     return _get_task_detail_or_404(db, task_id)
 
 
@@ -134,6 +126,7 @@ def dispatch_existing_processing_task(
 def update_processing_task(
     task_id: int,
     payload: ProcessingTaskUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_operator_user),
 ) -> ProcessingTask:
@@ -145,8 +138,12 @@ def update_processing_task(
     ensure_project_write_access(db, project_id=report.project_id, current_user=current_user)
 
     data = payload.model_dump(exclude_unset=True)
+    before_task = snapshot_processing_task(task)
     for field, value in data.items():
         setattr(task, field, value)
+
+    if data:
+        log_audit(db, action=AuditActionEnum.UPDATE, entity_type=AuditEntityTypeEnum.TASK, entity_id=task.id, actor=current_user, project_id=report.project_id, before_json=before_task, after_json={"event": "processing_task_updated", **(snapshot_processing_task(task) or {})}, request=request)
 
     db.commit()
     db.refresh(task)

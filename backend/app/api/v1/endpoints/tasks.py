@@ -12,7 +12,7 @@ from app.models.processing_task import ProcessingTask
 from app.models.report import Report
 from app.schemas.processing import ProcessingTaskDetailRead, ProcessingTaskRead
 from app.schemas.task import TaskProgressResponse, TaskQueueInfo
-from app.services.audit_service import write_audit_log
+from app.services.audit_service import log_audit, snapshot_processing_task
 
 router = APIRouter(dependencies=[Depends(require_approved_user)])
 
@@ -88,6 +88,7 @@ def get_task_progress(
     current_user=Depends(require_approved_user),
 ) -> TaskProgressResponse:
     task = _get_task_detail_or_404(db, task_id)
+    before_task = snapshot_processing_task(task)
     ensure_project_read_access(db, project_id=task.report.project_id, current_user=current_user)
 
     return TaskProgressResponse(
@@ -127,17 +128,8 @@ def retry_task(
         context_json={"retry_count": task.retry_count},
     )
     db.add(log)
-    write_audit_log(
-        db,
-        action=AuditActionEnum.PROCESS_RETRY,
-        entity_type=AuditEntityTypeEnum.TASK,
-        entity_id=task.id,
-        user_id=current_user.id,
-        project_id=task.report.project_id,
-        after_json={"status": task.status, "retry_count": task.retry_count},
-        request=request,
-    )
 
+    log_audit(db, action=AuditActionEnum.PROCESS_RETRY, entity_type=AuditEntityTypeEnum.TASK, entity_id=task.id, actor=current_user, project_id=task.report.project_id, before_json=before_task, after_json={"event": "task_retried", **(snapshot_processing_task(task) or {})}, request=request)
     db.commit()
     db.refresh(task)
     return _get_task_detail_or_404(db, task.id)
@@ -151,6 +143,7 @@ def cancel_task(
     current_user=Depends(require_operator_user),
 ) -> ProcessingTask:
     task = _get_task_detail_or_404(db, task_id)
+    before_task = snapshot_processing_task(task)
     ensure_project_write_access(db, project_id=task.report.project_id, current_user=current_user)
 
     if task.status in {ProcessingStatusEnum.SUCCESS, ProcessingStatusEnum.FAILED, ProcessingStatusEnum.CANCELLED}:
@@ -169,17 +162,8 @@ def cancel_task(
         context_json={},
     )
     db.add(log)
-    write_audit_log(
-        db,
-        action=AuditActionEnum.UPDATE,
-        entity_type=AuditEntityTypeEnum.TASK,
-        entity_id=task.id,
-        user_id=current_user.id,
-        project_id=task.report.project_id,
-        after_json={"status": task.status},
-        request=request,
-    )
 
+    log_audit(db, action=AuditActionEnum.UPDATE, entity_type=AuditEntityTypeEnum.TASK, entity_id=task.id, actor=current_user, project_id=task.report.project_id, before_json=before_task, after_json={"event": "task_cancelled", **(snapshot_processing_task(task) or {})}, request=request)
     db.commit()
     db.refresh(task)
     return _get_task_detail_or_404(db, task.id)
