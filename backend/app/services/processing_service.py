@@ -92,6 +92,85 @@ class ProcessingService:
             return self._enqueue_processing_task(task)
         return self.run_processing_task_sync(task_id=task_id)
 
+    def _collect_script_context(
+        self,
+        *,
+        task: ProcessingTask,
+        upload: ReportUpload,
+    ) -> dict[str, object]:
+        params = dict(task.params_json or {})
+        main_file = resolve_storage_path(upload.storage_path)
+
+        additional_entries: list[dict[str, object]] = []
+        raw_additional = params.get("additional_uploads") or []
+
+        if not raw_additional and params.get("additional_upload_ids"):
+            raw_additional = [
+                {"upload_id": upload_id, "role": "reference"}
+                for upload_id in list(params.get("additional_upload_ids") or [])
+            ]
+
+        for index, item in enumerate(raw_additional, start=1):
+            if isinstance(item, dict):
+                upload_id = item.get("upload_id") or item.get("id")
+                role = str(item.get("role") or f"reference_{index}")
+            else:
+                upload_id = item
+                role = f"reference_{index}"
+
+            if upload_id is None:
+                continue
+
+            extra_upload = self.db.get(ReportUpload, int(upload_id))
+            if extra_upload is None:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail=f"Additional upload {upload_id} not found.",
+                )
+            if extra_upload.report_id != task.report_id:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Additional upload must belong to the same report.",
+                )
+
+            additional_entries.append(
+                {
+                    "upload_id": extra_upload.id,
+                    "role": role,
+                    "filename": extra_upload.original_filename,
+                    "path": str(resolve_storage_path(extra_upload.storage_path)),
+                    "storage_path": extra_upload.storage_path,
+                }
+            )
+
+        by_role: dict[str, object] = {}
+        for entry in additional_entries:
+            by_role[str(entry["role"])] = entry
+
+        return {
+            "timeout_seconds": int(params.get("script_timeout_seconds") or 120),
+            "task": {
+                "id": task.id,
+                "report_id": task.report_id,
+                "report_upload_id": task.report_upload_id,
+                "ml_template_id": task.ml_template_id,
+            },
+            "report": {
+                "id": task.report.id if task.report is not None else task.report_id,
+                "title": task.report.title if task.report is not None else None,
+                "project_id": task.report.project_id if task.report is not None else None,
+                "report_type_id": task.report.report_type_id if task.report is not None else None,
+            },
+            "files": {
+                "main": str(main_file),
+                "main_upload_id": upload.id,
+                "main_filename": upload.original_filename,
+                "additional": additional_entries,
+                "by_role": by_role,
+            },
+            "params": params,
+        }
+
     def run_processing_task_sync(self, *, task_id: int) -> ProcessingTask:
         task = self.db.get(ProcessingTask, task_id)
         if task is None:
@@ -138,10 +217,33 @@ class ProcessingService:
                 },
             )
 
+            processing_script = task.ml_template.processing_script if task.ml_template is not None else None
+            if processing_script is not None:
+                self.append_log(
+                    task=task,
+                    level=ProcessingLogLevelEnum.INFO,
+                    stage="script_processing",
+                    message="Применяется расширенный пользовательский Python-скрипт обработки.",
+                    context_json={
+                        "processing_script_id": processing_script.id,
+                        "processing_script_code": processing_script.code,
+                        "processing_script_name": processing_script.name,
+                    },
+                )
+
+            processing_script_context = (
+                self._collect_script_context(task=task, upload=upload)
+                if processing_script is not None
+                else None
+            )
+
             normalization_result = self.normalization_service.normalize_file(
                 source_path=resolve_storage_path(upload.storage_path),
                 report_id=task.report_id,
                 task_id=task.id,
+                processing_script_code=processing_script.script_code if processing_script is not None else None,
+                processing_script_name=processing_script.name if processing_script is not None else None,
+                processing_script_context=processing_script_context,
             )
             self._store_warnings_and_errors(task=task, normalization_result=normalization_result)
             self._apply_validation_statistics(task=task, normalization_result=normalization_result)

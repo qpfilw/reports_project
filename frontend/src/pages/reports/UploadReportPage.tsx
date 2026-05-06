@@ -27,6 +27,12 @@ function formatBytes(value: number) {
   return `${(value / (1024 * 1024)).toFixed(2)} МБ`;
 }
 
+interface AdditionalUploadItem {
+  id: number;
+  role: string;
+  filename: string;
+}
+
 export default function UploadReportPage() {
   const { reportId } = useParams<{ reportId: string }>();
   const { user } = useAuth();
@@ -41,6 +47,9 @@ export default function UploadReportPage() {
   const [prediction, setPrediction] = useState<TemplatePredictionResult | null>(null);
 
   const [file, setFile] = useState<File | null>(null);
+  const [additionalFiles, setAdditionalFiles] = useState<File[]>([]);
+  const [additionalFileRole, setAdditionalFileRole] = useState('reference');
+  const [uploadedAdditionalFiles, setUploadedAdditionalFiles] = useState<AdditionalUploadItem[]>([]);
   const [comment, setComment] = useState('');
   const [selectedTemplateId, setSelectedTemplateId] = useState<string>('');
   const [priority, setPriority] = useState<string>(settings.defaultProcessingPriority);
@@ -125,6 +134,11 @@ export default function UploadReportPage() {
     setFile(nextFile);
   };
 
+  const handleAdditionalFilesChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.currentTarget.files ?? []);
+    setAdditionalFiles(files);
+  };
+
   const handleUpload = async () => {
     if (!file || !report) {
       setError('Сначала выбери файл для загрузки.');
@@ -137,8 +151,23 @@ export default function UploadReportPage() {
       setIsUploading(true);
 
       const upload = await reportsApi.uploadFile(report.id, file, comment);
+      const additionalUploads: AdditionalUploadItem[] = [];
+
+      for (const additionalFile of additionalFiles) {
+        const extraUpload = await reportsApi.uploadFile(
+          report.id,
+          additionalFile,
+          `Дополнительный файл для расширенного скрипта. Роль: ${additionalFileRole || 'reference'}`,
+        );
+        additionalUploads.push({
+          id: extraUpload.id,
+          role: additionalFileRole || 'reference',
+          filename: extraUpload.original_filename,
+        });
+      }
 
       setCreatedUploadId(upload.id);
+      setUploadedAdditionalFiles(additionalUploads);
 
       setExistingUploads((prev) =>
         [upload, ...prev.map((item) => ({ ...item, is_latest: false }))].sort(
@@ -146,7 +175,11 @@ export default function UploadReportPage() {
         ),
       );
 
-      setSuccessMessage(`Файл "${upload.original_filename}" успешно загружен.`);
+      setSuccessMessage(
+        additionalUploads.length
+          ? `Основной файл и дополнительные файлы (${additionalUploads.length}) успешно загружены.`
+          : `Файл "${upload.original_filename}" успешно загружен.`,
+      );
 
       try {
         setIsPredictionLoading(true);
@@ -190,7 +223,14 @@ export default function UploadReportPage() {
         ml_template_id: selectedTemplateId ? Number(selectedTemplateId) : null,
         created_by: user.id,
         priority: Number(priority),
-        params_json: {},
+        params_json: {
+          additional_uploads: uploadedAdditionalFiles.map((item) => ({
+            upload_id: item.id,
+            role: item.role,
+            filename: item.filename,
+          })),
+          script_timeout_seconds: 120,
+        },
       });
 
       if (settings.rememberLastMlTemplate) {
@@ -293,6 +333,33 @@ export default function UploadReportPage() {
               </Form.Group>
 
               <Form.Group className="mb-3">
+                <Form.Label>Дополнительные файлы для расширенного Python-скрипта</Form.Label>
+                <Form.Control
+                  type="file"
+                  className="soft-input"
+                  accept=".xlsx,.xls,.csv"
+                  multiple
+                  onChange={handleAdditionalFilesChange}
+                />
+                <Form.Text className="text-muted">
+                  Например: справочник лимитов, плановые значения или дополнительная Excel-книга.
+                </Form.Text>
+              </Form.Group>
+
+              <Form.Group className="mb-3">
+                <Form.Label>Роль дополнительных файлов в скрипте</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={additionalFileRole}
+                  onChange={(event) => setAdditionalFileRole(event.target.value)}
+                  placeholder="Например: limits, reference, plan"
+                />
+                <Form.Text className="text-muted">
+                  В скрипте файл будет доступен через context["files"]["by_role"]["{additionalFileRole || 'reference'}"].
+                </Form.Text>
+              </Form.Group>
+
+              <Form.Group className="mb-3">
                 <Form.Label>Комментарий к загрузке</Form.Label>
                 <Form.Control
                   as="textarea"
@@ -380,6 +447,17 @@ export default function UploadReportPage() {
                     : file
                       ? formatBytes(file.size)
                       : '-'}
+                </div>
+              </div>
+
+              <div className="form-meta-card">
+                <div className="form-meta-label">Дополнительные файлы скрипта</div>
+                <div className="form-meta-value">
+                  {uploadedAdditionalFiles.length
+                    ? uploadedAdditionalFiles.map((item) => `${item.filename} (${item.role})`).join(', ')
+                    : additionalFiles.length
+                      ? `${additionalFiles.length} файл(ов) выбрано`
+                      : 'Не выбраны'}
                 </div>
               </div>
 

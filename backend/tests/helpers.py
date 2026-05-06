@@ -332,3 +332,60 @@ def create_dashboard(
     )
     assert response.status_code == 201, response.text
     return response.json()
+
+
+def create_processing_script(
+    client: TestClient,
+    headers: dict[str, str],
+    *,
+    report_type_id: int | None,
+    created_by: int,
+    code: str = "expense_control_script",
+    script_code: str | None = None,
+) -> dict[str, Any]:
+    script_code = script_code or '''def process(context):
+    rows = context.get("rows") or []
+
+    for row in rows:
+        total = float(row.get("Итого с НДС") or row.get("amount") or 0)
+        status = str(row.get("Статус оплаты") or "").strip()
+
+        if status == "Ожидает оплаты" and total >= 300000:
+            row["Результат контроля"] = "Требует срочного контроля"
+            row["Уровень риска"] = "Высокий"
+            row["Требуется согласование"] = "Да"
+        elif status == "Ожидает оплаты" and total >= 100000:
+            row["Результат контроля"] = "Требует контроля"
+            row["Уровень риска"] = "Средний"
+            row["Требуется согласование"] = "Да"
+        else:
+            row["Результат контроля"] = "Без замечаний"
+            row["Уровень риска"] = "Низкий"
+            row["Требуется согласование"] = "Нет"
+
+    return {
+        "rows": rows,
+        "summary": {
+            "script": "expense_control",
+            "processed_rows": len(rows),
+        },
+        "warnings": [],
+    }
+'''
+    response = client.post(
+        "/api/v1/processing-scripts/",
+        headers=headers,
+        json={
+            "code": code,
+            "name": "Expense control script",
+            "description": "Adds business control columns",
+            "target_report_type_id": report_type_id,
+            "script_code": script_code,
+            "version": "1.0",
+            "is_default": True,
+            "is_active": True,
+            "created_by": created_by,
+        },
+    )
+    assert response.status_code == 201, response.text
+    return response.json()

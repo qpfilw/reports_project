@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { mlApi } from '../../shared/api/ml';
 import { processingApi } from '../../shared/api/processing';
+import { processingScriptsApi } from '../../shared/api/processingScripts';
 import { projectsApi } from '../../shared/api/projects';
 import { reportTypesApi } from '../../shared/api/reportTypes';
 import { reportsApi } from '../../shared/api/reports';
@@ -13,6 +14,7 @@ import {
   getReportStatusLabel,
 } from '../../shared/lib/reportStatus';
 import { readUserSettings, saveLastMlTemplateId } from '../../shared/lib/userSettings';
+import type { ProcessingScript } from '../../shared/types/processing-script';
 import type { ProjectMember } from '../../shared/types/project';
 import type { ReportDetail, ReportStatus } from '../../shared/types/report';
 import type { ReportType } from '../../shared/types/report-type';
@@ -45,6 +47,12 @@ const initialForm: EditReportFormState = {
   version: '1',
   last_comment: '',
 };
+
+interface AdditionalUploadItem {
+  id: number;
+  role: string;
+  filename: string;
+}
 
 const editableProcessingStatuses: ReportStatus[] = [
   'draft',
@@ -89,9 +97,13 @@ export default function EditReportPage() {
   const [reportTypes, setReportTypes] = useState<ReportType[]>([]);
   const [projectMembers, setProjectMembers] = useState<ProjectMember[]>([]);
   const [templates, setTemplates] = useState<MlTemplate[]>([]);
+  const [processingScripts, setProcessingScripts] = useState<ProcessingScript[]>([]);
   const [latestUpload, setLatestUpload] = useState<ReportUpload | null>(null);
 
   const [reprocessFile, setReprocessFile] = useState<File | null>(null);
+  const [additionalFiles, setAdditionalFiles] = useState<File[]>([]);
+  const [additionalFileRole, setAdditionalFileRole] = useState('reference');
+  const [uploadedAdditionalFiles, setUploadedAdditionalFiles] = useState<AdditionalUploadItem[]>([]);
   const [reprocessComment, setReprocessComment] = useState('');
   const [reprocessPriority, setReprocessPriority] = useState<string>(
     settings.defaultProcessingPriority,
@@ -119,6 +131,17 @@ export default function EditReportPage() {
   );
 
   const canManageProcessing = Boolean(report && editableProcessingStatuses.includes(report.status));
+  const selectedTemplate = useMemo(
+    () => templates.find((template) => String(template.id) === form.ml_template_id) ?? null,
+    [templates, form.ml_template_id],
+  );
+  const selectedProcessingScript = useMemo(() => {
+    if (!selectedTemplate?.processing_script_id) {
+      return null;
+    }
+
+    return processingScripts.find((script) => script.id === selectedTemplate.processing_script_id) ?? null;
+  }, [processingScripts, selectedTemplate]);
   const processingButtonLabel = reprocessFile
     ? 'Сохранить, загрузить и запустить'
     : 'Сохранить и запустить обработку';
@@ -136,15 +159,17 @@ export default function EditReportPage() {
         setError('');
 
         const reportData = await reportsApi.getById(numericReportId);
-        const [reportTypesData, membersData, uploadsData] = await Promise.all([
+        const [reportTypesData, membersData, uploadsData, scriptsData] = await Promise.all([
           reportTypesApi.list(),
           projectsApi.listMembers(reportData.project_id),
           uploadsApi.list(),
+          processingScriptsApi.list(),
         ]);
 
         setReport(reportData);
         setReportTypes(reportTypesData.filter((item) => item.is_active));
         setProjectMembers(membersData);
+        setProcessingScripts(scriptsData);
         setLatestUpload(getLatestUpload(uploadsData, reportData.id));
 
         setForm({
@@ -218,6 +243,12 @@ export default function EditReportPage() {
   const handleReprocessFileChange = (event: ChangeEvent<HTMLInputElement>) => {
     const nextFile = event.currentTarget.files?.[0] ?? null;
     setReprocessFile(nextFile);
+  };
+
+  const handleAdditionalFilesChange = (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.currentTarget.files ?? []);
+    setAdditionalFiles(files);
+    setUploadedAdditionalFiles([]);
   };
 
   const validateForm = () => {
@@ -344,13 +375,35 @@ export default function EditReportPage() {
         return;
       }
 
+      const additionalUploads: AdditionalUploadItem[] = [];
+      for (const additionalFile of additionalFiles) {
+        const extraUpload = await reportsApi.uploadFile(
+          updated.id,
+          additionalFile,
+          `Дополнительный файл для расширенного скрипта. Роль: ${additionalFileRole || 'reference'}`,
+        );
+        additionalUploads.push({
+          id: extraUpload.id,
+          role: additionalFileRole || 'reference',
+          filename: extraUpload.original_filename,
+        });
+      }
+      setUploadedAdditionalFiles(additionalUploads);
+
       const task = await processingApi.launchTask({
         report_id: updated.id,
         report_upload_id: uploadId,
         ml_template_id: updated.ml_template_id ?? null,
         created_by: user.id,
         priority: Number(reprocessPriority),
-        params_json: {},
+        params_json: {
+          additional_uploads: additionalUploads.map((item) => ({
+            upload_id: item.id,
+            role: item.role,
+            filename: item.filename,
+          })),
+          script_timeout_seconds: 120,
+        },
       });
 
       navigate(`/tasks/${task.id}`);
@@ -464,9 +517,15 @@ export default function EditReportPage() {
                   {templates.map((template) => (
                     <option key={template.id} value={template.id}>
                       {template.name}
+                      {template.processing_script_id ? ' • скрипт' : ''}
                     </option>
                   ))}
                 </Form.Select>
+                <Form.Text className="text-muted">
+                  {selectedTemplate?.processing_script_id
+                    ? `К шаблону привязан расширенный Python-скрипт: ${selectedProcessingScript?.name ?? `#${selectedTemplate.processing_script_id}`}.`
+                    : 'У выбранного шаблона нет расширенного скрипта постобработки.'}
+                </Form.Text>
               </Form.Group>
             </Col>
 
@@ -615,6 +674,18 @@ export default function EditReportPage() {
                     </div>
                   </div>
                 </Col>
+                <Col md={12}>
+                  <div className="result-summary-item h-100">
+                    <div className="result-summary-key">Дополнительные файлы скрипта</div>
+                    <div className="result-summary-value">
+                      {uploadedAdditionalFiles.length
+                        ? uploadedAdditionalFiles.map((item) => `${item.filename} (${item.role})`).join(', ')
+                        : additionalFiles.length
+                          ? `${additionalFiles.length} файл(ов) выбрано, роль: ${additionalFileRole || 'reference'}`
+                          : 'Не выбраны'}
+                    </div>
+                  </div>
+                </Col>
               </Row>
 
               <Row className="g-3">
@@ -629,6 +700,37 @@ export default function EditReportPage() {
                     />
                     <Form.Text className="text-muted">
                       Поле необязательно, если у отчета уже есть ранее загруженный файл.
+                    </Form.Text>
+                  </Form.Group>
+                </Col>
+
+                <Col md={12}>
+                  <Form.Group>
+                    <Form.Label>Дополнительные файлы для расширенного Python-скрипта</Form.Label>
+                    <Form.Control
+                      type="file"
+                      accept=".xlsx,.xls,.csv"
+                      multiple
+                      onChange={handleAdditionalFilesChange}
+                      className="soft-input"
+                    />
+                    <Form.Text className="text-muted">
+                      Например: справочник лимитов, плановые значения или дополнительная Excel-книга.
+                    </Form.Text>
+                  </Form.Group>
+                </Col>
+
+                <Col md={12}>
+                  <Form.Group>
+                    <Form.Label>Роль дополнительных файлов в скрипте</Form.Label>
+                    <Form.Control
+                      value={additionalFileRole}
+                      onChange={(event) => setAdditionalFileRole(event.target.value)}
+                      className="soft-input"
+                      placeholder="Например: reference, limits, plan"
+                    />
+                    <Form.Text className="text-muted">
+                      В скрипте файл будет доступен через context["files"]["by_role"]["{additionalFileRole || 'reference'}"].
                     </Form.Text>
                   </Form.Group>
                 </Col>

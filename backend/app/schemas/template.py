@@ -12,6 +12,7 @@ class MlTemplateCreate(BaseSchema):
     template_type: TemplateTypeEnum
     target_report_type_id: int | None = None
     department: str | None = Field(None, max_length=150)
+    processing_script_id: int | None = None
     config_json: dict[str, Any] = Field(default_factory=dict)
     metrics_json: dict[str, Any] = Field(default_factory=dict)
     model_path: str | None = Field(None, max_length=512)
@@ -27,6 +28,7 @@ class MlTemplateUpdate(BaseSchema):
     template_type: TemplateTypeEnum | None = None
     target_report_type_id: int | None = None
     department: str | None = Field(None, max_length=150)
+    processing_script_id: int | None = None
     config_json: dict[str, Any] | None = None
     metrics_json: dict[str, Any] | None = None
     model_path: str | None = Field(None, max_length=512)
@@ -42,6 +44,7 @@ class MlTemplateShortRead(IdSchema):
     is_default: bool
     is_active: bool
     target_report_type_id: int | None = None
+    processing_script_id: int | None = None
 
 class MlTemplateRead(TimestampSchema, IdSchema):
     code: str
@@ -50,6 +53,7 @@ class MlTemplateRead(TimestampSchema, IdSchema):
     template_type: TemplateTypeEnum
     target_report_type_id: int | None = None
     department: str | None = None
+    processing_script_id: int | None = None
     config_json: dict[str, Any]
     metrics_json: dict[str, Any]
     model_path: str | None = None

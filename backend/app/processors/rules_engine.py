@@ -6,7 +6,6 @@ from datetime import date, datetime
 
 MANDATORY_COLUMN_HINTS = (
     "id",
-    "код",
     "сумм",
     "дата",
     "date",
@@ -18,8 +17,6 @@ MANDATORY_COLUMN_HINTS = (
 
 NUMERIC_COLUMN_HINTS = (
     "id",
-    "code",
-    "код",
     "sum",
     "amount",
     "сумм",
@@ -29,6 +26,14 @@ NUMERIC_COLUMN_HINTS = (
     "кол",
     "number",
     "номер",
+    "цена",
+    "price",
+    "ндс",
+    "vat",
+    "лимит",
+    "план",
+    "отклон",
+    "коэффициент",
 )
 
 DATE_COLUMN_HINTS = (
@@ -38,14 +43,35 @@ DATE_COLUMN_HINTS = (
     "период",
 )
 
+# Колонки, которые похожи на числовые по слову "код", но на практике являются строковыми справочными ключами.
+TEXT_CODE_COLUMN_HINTS = (
+    "код статьи",
+    "код категории",
+    "код контрагента",
+    "код номенклатуры",
+    "код товара",
+    "код услуги",
+    "артикул",
+    "sku",
+    "article",
+)
+
+
+def _normalize_header(header: str) -> str:
+    return " ".join(str(header).lower().strip().split())
+
 
 def _is_numeric_column(header: str) -> bool:
-    header_lower = header.lower()
+    header_lower = _normalize_header(header)
+
+    if any(token in header_lower for token in TEXT_CODE_COLUMN_HINTS):
+        return False
+
     return any(token in header_lower for token in NUMERIC_COLUMN_HINTS)
 
 
 def _is_date_column(header: str) -> bool:
-    header_lower = header.lower()
+    header_lower = _normalize_header(header)
     return any(token in header_lower for token in DATE_COLUMN_HINTS)
 
 
@@ -111,7 +137,9 @@ def analyze_rows(rows: list[dict[str, object]]) -> dict[str, object]:
 
     headers = list(rows[0].keys())
     required_headers = [
-        header for header in headers if any(hint in header.lower() for hint in MANDATORY_COLUMN_HINTS)
+        header
+        for header in headers
+        if any(hint in _normalize_header(header) for hint in MANDATORY_COLUMN_HINTS)
     ]
 
     missing_required_count = 0

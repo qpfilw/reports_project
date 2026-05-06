@@ -11,6 +11,7 @@ export interface MlTemplate {
   description: string | null;
   template_type: TemplateType;
   target_report_type_id: number | null;
+  processing_script_id: number | null;
   department: string | null;
   config_json: Record<string, unknown>;
   metrics_json: Record<string, unknown>;
@@ -37,6 +38,7 @@ export interface CreateMlTemplatePayload {
   description?: string | null;
   template_type: TemplateType;
   target_report_type_id?: number | null;
+  processing_script_id?: number | null;
   department?: string | null;
   config_json?: Record<string, unknown>;
   metrics_json?: Record<string, unknown>;
@@ -53,6 +55,7 @@ export interface UpdateMlTemplatePayload {
   description?: string | null;
   template_type?: TemplateType;
   target_report_type_id?: number | null;
+  processing_script_id?: number | null;
   department?: string | null;
   config_json?: Record<string, unknown> | null;
   metrics_json?: Record<string, unknown> | null;

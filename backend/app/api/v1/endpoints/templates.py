@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import get_db, require_approved_user, require_manager_user
 from app.models.enums import AuditActionEnum, AuditEntityTypeEnum
 from app.models.ml_template import MlTemplate
+from app.models.processing_script import ProcessingScript
 from app.models.report_type import ReportType
 from app.models.user import User
 from app.schemas.template import (
@@ -58,6 +59,19 @@ def create_template(payload: MlTemplateCreate, request: Request, db: Session = D
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Target report type not found.",
+            )
+
+    if payload.processing_script_id is not None:
+        processing_script = db.get(ProcessingScript, payload.processing_script_id)
+        if processing_script is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Processing script not found.",
+            )
+        if not processing_script.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Processing script is inactive.",
             )
 
     if payload.created_by is not None:
@@ -122,6 +136,19 @@ def update_template(
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="Target report type not found.",
+            )
+
+    if "processing_script_id" in data and data["processing_script_id"] is not None:
+        processing_script = db.get(ProcessingScript, data["processing_script_id"])
+        if processing_script is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Processing script not found.",
+            )
+        if not processing_script.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Processing script is inactive.",
             )
 
     target_report_type_id = data.get("target_report_type_id", template.target_report_type_id)

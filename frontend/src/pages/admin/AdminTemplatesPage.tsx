@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ChangeEvent, type FormEvent } from 'react';
 import { Alert, Button, Col, Form, Modal, Row, Spinner, Table } from 'react-bootstrap';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { reportTypesApi } from '../../shared/api/reportTypes';
+import { processingScriptsApi } from '../../shared/api/processingScripts';
 import { templatesApi } from '../../shared/api/templates';
 import {
   buildTemplatePreset,
@@ -10,6 +11,7 @@ import {
   getTemplateTypeLabel,
 } from '../../shared/lib/templateLabels';
 import type { ReportType } from '../../shared/types/report-type';
+import type { ProcessingScript, ValidateProcessingScriptResult } from '../../shared/types/processing-script';
 import {
   TEMPLATE_TYPE_OPTIONS,
   type CreateMlTemplatePayload,
@@ -28,6 +30,7 @@ interface TemplateFormState {
   description: string;
   template_type: TemplateType;
   target_report_type_id: string;
+  processing_script_id: string;
   department: string;
   config_json: string;
   metrics_json: string;
@@ -42,7 +45,135 @@ interface JsonValidationState {
   message: string;
 }
 
+interface ScriptFormState {
+  code: string;
+  name: string;
+  description: string;
+  target_report_type_id: string;
+  script_code: string;
+  version: string;
+  is_default: boolean;
+  is_active: boolean;
+}
+
+interface ReportTypeFormState {
+  code: string;
+  name: string;
+  description: string;
+  schema_version: string;
+  is_active: boolean;
+}
+
 const INITIAL_TEMPLATE_TYPE: TemplateType = 'classification';
+
+const DEMO_PROCESSING_SCRIPT = `from openpyxl import load_workbook
+
+
+def _to_number(value):
+    try:
+        return float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _read_limits(path):
+    if not path:
+        return {}
+
+    workbook = load_workbook(path, read_only=True, data_only=True)
+    sheet = workbook[workbook.sheetnames[0]]
+    rows = list(sheet.iter_rows(values_only=True))
+    workbook.close()
+
+    if not rows:
+        return {}
+
+    headers = [str(value).strip() if value is not None else '' for value in rows[0]]
+    try:
+        category_index = headers.index('Категория расходов')
+        limit_index = headers.index('Лимит')
+    except ValueError:
+        return {}
+
+    limits = {}
+    for values in rows[1:]:
+        category = values[category_index] if category_index < len(values) else None
+        limit = values[limit_index] if limit_index < len(values) else 0
+        if category:
+            limits[str(category).strip()] = _to_number(limit)
+    return limits
+
+
+def process(context):
+    rows = context.get('rows') or []
+    files = context.get('files') or {}
+    by_role = files.get('by_role') or {}
+    limits_file = by_role.get('limits') or by_role.get('reference') or {}
+    limits = _read_limits(limits_file.get('path'))
+
+    processed_rows = []
+    exceeded_limit_count = 0
+    high_risk_count = 0
+
+    for row in rows:
+        next_row = dict(row)
+        category = str(next_row.get('Категория расходов') or '').strip()
+        total = _to_number(next_row.get('Итого с НДС'))
+        status = str(next_row.get('Статус оплаты') or '').strip()
+        limit = limits.get(category, 100000.0)
+        deviation = round(total - limit, 2)
+        exceeded = deviation > 0
+
+        if exceeded and total >= 300000:
+            risk = 'Высокий'
+            control = 'Требует срочного контроля'
+        elif exceeded or status in {'Ожидает оплаты', 'Частично оплачено'}:
+            risk = 'Средний'
+            control = 'Требует контроля' if status != 'Частично оплачено' else 'Требует сверки оплаты'
+        else:
+            risk = 'Низкий'
+            control = 'Без замечаний'
+
+        next_row['Лимит по категории'] = limit
+        next_row['Отклонение от лимита'] = deviation
+        next_row['Превышен лимит'] = 'Да' if exceeded else 'Нет'
+        next_row['Результат контроля'] = control
+        next_row['Уровень риска'] = risk
+        next_row['Требуется согласование'] = 'Да' if risk in {'Средний', 'Высокий'} else 'Нет'
+
+        exceeded_limit_count += 1 if exceeded else 0
+        high_risk_count += 1 if risk == 'Высокий' else 0
+        processed_rows.append(next_row)
+
+    return {
+        'rows': processed_rows,
+        'summary': {
+            'exceeded_limit_count': exceeded_limit_count,
+            'high_risk_count': high_risk_count,
+            'processed_rows': len(processed_rows),
+        },
+        'warnings': [],
+    }
+`;
+
+const INITIAL_SCRIPT_FORM: ScriptFormState = {
+  code: 'expense_control_script',
+  name: 'Контроль расходных операций',
+  description: 'Скрипт добавляет контрольные признаки по сумме операции и статусу оплаты.',
+  target_report_type_id: '',
+  script_code: DEMO_PROCESSING_SCRIPT,
+  version: '1.0',
+  is_default: false,
+  is_active: true,
+};
+
+const INITIAL_REPORT_TYPE_FORM: ReportTypeFormState = {
+  code: '',
+  name: '',
+  description: '',
+  schema_version: '1.0',
+  is_active: true,
+};
 
 function prettyJson(value: Record<string, unknown>) {
   return JSON.stringify(value ?? {}, null, 2);
@@ -57,6 +188,7 @@ function createInitialFormState(templateType: TemplateType = INITIAL_TEMPLATE_TY
     description: '',
     template_type: templateType,
     target_report_type_id: '',
+    processing_script_id: '',
     department: '',
     config_json: prettyJson(preset.config_json),
     metrics_json: prettyJson(preset.metrics_json),
@@ -78,6 +210,7 @@ function buildFormState(template?: MlTemplateDetail | null): TemplateFormState {
     description: template.description ?? '',
     template_type: template.template_type,
     target_report_type_id: template.target_report_type_id ? String(template.target_report_type_id) : '',
+    processing_script_id: template.processing_script_id ? String(template.processing_script_id) : '',
     department: template.department ?? '',
     config_json: prettyJson(template.config_json),
     metrics_json: prettyJson(template.metrics_json),
@@ -123,6 +256,7 @@ export default function AdminTemplatesPage() {
 
   const [templates, setTemplates] = useState<MlTemplate[]>([]);
   const [reportTypes, setReportTypes] = useState<ReportType[]>([]);
+  const [processingScripts, setProcessingScripts] = useState<ProcessingScript[]>([]);
 
   const [selectedTemplate, setSelectedTemplate] = useState<MlTemplateDetail | null>(null);
   const [formState, setFormState] = useState<TemplateFormState>(createInitialFormState());
@@ -135,9 +269,21 @@ export default function AdminTemplatesPage() {
   const [showFormModal, setShowFormModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showAdvancedSettings, setShowAdvancedSettings] = useState(false);
+  const [showScriptModal, setShowScriptModal] = useState(false);
+  const [scriptFormMode, setScriptFormMode] = useState<FormMode>('create');
+  const [selectedScriptId, setSelectedScriptId] = useState<number | null>(null);
+  const [scriptForm, setScriptForm] = useState<ScriptFormState>(INITIAL_SCRIPT_FORM);
+  const [scriptValidation, setScriptValidation] = useState<ValidateProcessingScriptResult | null>(null);
+  const [showReportTypeModal, setShowReportTypeModal] = useState(false);
+  const [reportTypeFormMode, setReportTypeFormMode] = useState<FormMode>('create');
+  const [selectedReportTypeId, setSelectedReportTypeId] = useState<number | null>(null);
+  const [reportTypeForm, setReportTypeForm] = useState<ReportTypeFormState>(INITIAL_REPORT_TYPE_FORM);
 
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmittingScript, setIsSubmittingScript] = useState(false);
+  const [isSubmittingReportType, setIsSubmittingReportType] = useState(false);
+  const [isValidatingScript, setIsValidatingScript] = useState(false);
 
   const [error, setError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
@@ -147,13 +293,15 @@ export default function AdminTemplatesPage() {
       setIsLoading(true);
       setError('');
 
-      const [templatesData, reportTypesData] = await Promise.all([
+      const [templatesData, reportTypesData, scriptsData] = await Promise.all([
         templatesApi.list(),
         reportTypesApi.list(),
+        processingScriptsApi.list(),
       ]);
 
       setTemplates(templatesData);
       setReportTypes(reportTypesData);
+      setProcessingScripts(scriptsData);
     } catch {
       setError('Не удалось загрузить ML-шаблоны.');
     } finally {
@@ -168,6 +316,10 @@ export default function AdminTemplatesPage() {
   const reportTypeMap = useMemo(() => {
     return new Map(reportTypes.map((item) => [item.id, item]));
   }, [reportTypes]);
+
+  const processingScriptMap = useMemo(() => {
+    return new Map(processingScripts.map((item) => [item.id, item]));
+  }, [processingScripts]);
 
   const filteredTemplates = useMemo(() => {
     const normalizedSearch = search.trim().toLowerCase();
@@ -231,6 +383,260 @@ export default function AdminTemplatesPage() {
     setShowFormModal(true);
     setError('');
     setSuccessMessage('');
+  };
+
+  const openCreateScriptModal = () => {
+    setScriptFormMode('create');
+    setSelectedScriptId(null);
+    setScriptForm({
+      ...INITIAL_SCRIPT_FORM,
+      target_report_type_id: formState.target_report_type_id || '',
+    });
+    setScriptValidation(null);
+    setShowScriptModal(true);
+    setError('');
+    setSuccessMessage('');
+  };
+
+  const openEditScriptModal = async (scriptId: number) => {
+    try {
+      setError('');
+      setSuccessMessage('');
+      setScriptValidation(null);
+      const script = await processingScriptsApi.getById(scriptId);
+      setScriptFormMode('edit');
+      setSelectedScriptId(script.id);
+      setScriptForm({
+        code: script.code,
+        name: script.name,
+        description: script.description ?? '',
+        target_report_type_id: script.target_report_type_id ? String(script.target_report_type_id) : '',
+        script_code: script.script_code,
+        version: script.version,
+        is_default: script.is_default,
+        is_active: script.is_active,
+      });
+      setShowScriptModal(true);
+    } catch {
+      setError('Не удалось загрузить скрипт обработки для редактирования.');
+    }
+  };
+
+  const closeScriptModal = () => {
+    setShowScriptModal(false);
+    setScriptForm(INITIAL_SCRIPT_FORM);
+    setScriptFormMode('create');
+    setSelectedScriptId(null);
+    setScriptValidation(null);
+  };
+
+  const openCreateReportTypeModal = () => {
+    setReportTypeFormMode('create');
+    setSelectedReportTypeId(null);
+    setReportTypeForm(INITIAL_REPORT_TYPE_FORM);
+    setShowReportTypeModal(true);
+    setError('');
+    setSuccessMessage('');
+  };
+
+  const openEditReportTypeModal = async (reportTypeId: number) => {
+    try {
+      setError('');
+      setSuccessMessage('');
+      const reportType = await reportTypesApi.getById(reportTypeId);
+      setReportTypeFormMode('edit');
+      setSelectedReportTypeId(reportType.id);
+      setReportTypeForm({
+        code: reportType.code,
+        name: reportType.name,
+        description: reportType.description ?? '',
+        schema_version: reportType.schema_version,
+        is_active: reportType.is_active,
+      });
+      setShowReportTypeModal(true);
+    } catch {
+      setError('Не удалось загрузить тип отчётности для редактирования.');
+    }
+  };
+
+  const closeReportTypeModal = () => {
+    setShowReportTypeModal(false);
+    setReportTypeForm(INITIAL_REPORT_TYPE_FORM);
+    setReportTypeFormMode('create');
+    setSelectedReportTypeId(null);
+  };
+
+  const handleSaveReportType = async () => {
+    const code = reportTypeForm.code.trim();
+    const name = reportTypeForm.name.trim();
+
+    if (!code || !name) {
+      setError('Укажи код и название типа отчётности.');
+      return;
+    }
+
+    try {
+      setIsSubmittingReportType(true);
+      setError('');
+      setSuccessMessage('');
+
+      if (reportTypeFormMode === 'create') {
+        const createdReportType = await reportTypesApi.create({
+          code,
+          name,
+          description: reportTypeForm.description.trim() || null,
+          schema_version: reportTypeForm.schema_version.trim() || '1.0',
+          is_active: reportTypeForm.is_active,
+        });
+
+        await loadTemplatesData();
+        updateFormField('target_report_type_id', String(createdReportType.id));
+        setScriptForm((prev) => ({
+          ...prev,
+          target_report_type_id: String(createdReportType.id),
+        }));
+        closeReportTypeModal();
+        setSuccessMessage('Тип отчётности успешно создан и выбран в форме.');
+      } else {
+        if (selectedReportTypeId == null) {
+          setError('Тип отчётности для редактирования не выбран.');
+          return;
+        }
+
+        const updatedReportType = await reportTypesApi.update(selectedReportTypeId, {
+          code,
+          name,
+          description: reportTypeForm.description.trim() || null,
+          schema_version: reportTypeForm.schema_version.trim() || '1.0',
+          is_active: reportTypeForm.is_active,
+        });
+
+        await loadTemplatesData();
+        updateFormField('target_report_type_id', String(updatedReportType.id));
+        setSuccessMessage('Тип отчётности успешно обновлён.');
+        closeReportTypeModal();
+      }
+    } catch {
+      setError(
+        reportTypeFormMode === 'create'
+          ? 'Не удалось создать тип отчётности. Проверь уникальность кода и заполнение обязательных полей.'
+          : 'Не удалось обновить тип отчётности. Проверь уникальность кода и заполнение обязательных полей.',
+      );
+    } finally {
+      setIsSubmittingReportType(false);
+    }
+  };
+
+
+  const handleValidateScript = async () => {
+    try {
+      setIsValidatingScript(true);
+      setScriptValidation(null);
+      const result = await processingScriptsApi.validate({
+        script_code: scriptForm.script_code,
+        sample_context: {
+          rows: [
+            {
+              'Категория расходов': 'IT',
+              'Итого с НДС': 350000,
+              'Статус оплаты': 'Ожидает оплаты',
+            },
+          ],
+          files: { main: null, additional: [], by_role: {} },
+          params: {},
+        },
+      });
+      setScriptValidation(result);
+    } catch {
+      setScriptValidation({
+        is_valid: false,
+        message: 'Не удалось проверить скрипт.',
+        output_row: null,
+        added_columns: [],
+        error: 'Проверь доступность backend API.',
+      });
+    } finally {
+      setIsValidatingScript(false);
+    }
+  };
+
+  const handleScriptFileChange = async (event: ChangeEvent<HTMLInputElement>) => {
+    const nextFile = event.currentTarget.files?.[0] ?? null;
+    if (!nextFile) return;
+
+    if (!nextFile.name.endsWith('.py')) {
+      setError('Можно загрузить только Python-файл с расширением .py.');
+      return;
+    }
+
+    const content = await nextFile.text();
+    setScriptForm((prev) => ({
+      ...prev,
+      script_code: content,
+      code: prev.code || nextFile.name.replace(/\.py$/i, ''),
+      name: prev.name || nextFile.name.replace(/\.py$/i, ''),
+    }));
+    setScriptValidation(null);
+  };
+
+  const handleSaveScript = async () => {
+    if (!scriptForm.code.trim() || !scriptForm.name.trim() || !scriptForm.script_code.trim()) {
+      setError('Укажи код, название и тело скрипта.');
+      return;
+    }
+
+    try {
+      setIsSubmittingScript(true);
+      setError('');
+      setSuccessMessage('');
+
+      if (scriptFormMode === 'create') {
+        const createdScript = await processingScriptsApi.create({
+          code: scriptForm.code.trim(),
+          name: scriptForm.name.trim(),
+          description: scriptForm.description.trim() || null,
+          target_report_type_id: scriptForm.target_report_type_id ? Number(scriptForm.target_report_type_id) : null,
+          script_code: scriptForm.script_code,
+          version: scriptForm.version.trim() || '1.0',
+          is_default: scriptForm.is_default,
+          is_active: scriptForm.is_active,
+          created_by: user?.id ?? null,
+        });
+        await loadTemplatesData();
+        updateFormField('processing_script_id', String(createdScript.id));
+        setSuccessMessage('Скрипт обработки успешно создан и выбран в форме шаблона.');
+      } else {
+        if (selectedScriptId == null) {
+          setError('Скрипт для редактирования не выбран.');
+          return;
+        }
+
+        const updatedScript = await processingScriptsApi.update(selectedScriptId, {
+          code: scriptForm.code.trim(),
+          name: scriptForm.name.trim(),
+          description: scriptForm.description.trim() || null,
+          target_report_type_id: scriptForm.target_report_type_id ? Number(scriptForm.target_report_type_id) : null,
+          script_code: scriptForm.script_code,
+          version: scriptForm.version.trim() || '1.0',
+          is_default: scriptForm.is_default,
+          is_active: scriptForm.is_active,
+          validation_json: null,
+        });
+        await loadTemplatesData();
+        updateFormField('processing_script_id', String(updatedScript.id));
+        setSuccessMessage('Скрипт обработки успешно обновлён.');
+      }
+
+      closeScriptModal();
+    } catch {
+      setError(
+        scriptFormMode === 'create'
+          ? 'Не удалось создать скрипт обработки. Проверь код и уникальность версии.'
+          : 'Не удалось обновить скрипт обработки. Проверь код, тело скрипта и уникальность версии.',
+      );
+    } finally {
+      setIsSubmittingScript(false);
+    }
   };
 
   const openEditModal = async (templateId: number) => {
@@ -297,6 +703,9 @@ export default function AdminTemplatesPage() {
           target_report_type_id: formState.target_report_type_id
             ? Number(formState.target_report_type_id)
             : null,
+          processing_script_id: formState.processing_script_id
+            ? Number(formState.processing_script_id)
+            : null,
           department: formState.department.trim() || null,
           config_json: configJson,
           metrics_json: metricsJson,
@@ -322,6 +731,9 @@ export default function AdminTemplatesPage() {
           template_type: formState.template_type,
           target_report_type_id: formState.target_report_type_id
             ? Number(formState.target_report_type_id)
+            : null,
+          processing_script_id: formState.processing_script_id
+            ? Number(formState.processing_script_id)
             : null,
           department: formState.department.trim() || null,
           config_json: configJson,
@@ -361,6 +773,12 @@ export default function AdminTemplatesPage() {
             <div className="admin-header-actions">
               <Button className="secondary-pill-button" onClick={() => navigate('/admin')}>
                 Назад
+              </Button>
+              <Button className="secondary-pill-button" onClick={openCreateReportTypeModal}>
+                Создать тип отчётности
+              </Button>
+              <Button className="secondary-pill-button" onClick={openCreateScriptModal}>
+                Создать скрипт обработки
               </Button>
               <Button className="primary-pill-button" onClick={openCreateModal}>
                 Создать шаблон
@@ -424,6 +842,7 @@ export default function AdminTemplatesPage() {
                       <th>Название</th>
                       <th>Тип</th>
                       <th>Тип отчётности</th>
+                      <th>Скрипт</th>
                       <th>Версия</th>
                       <th>Статус</th>
                       <th>По умолчанию</th>
@@ -433,7 +852,7 @@ export default function AdminTemplatesPage() {
                   <tbody>
                     {filteredTemplates.length === 0 ? (
                       <tr>
-                        <td colSpan={9} className="text-center py-4">
+                        <td colSpan={10} className="text-center py-4">
                           ML-шаблоны не найдены
                         </td>
                       </tr>
@@ -445,9 +864,32 @@ export default function AdminTemplatesPage() {
                           <td>{template.name}</td>
                           <td>{getTemplateTypeLabel(template.template_type)}</td>
                           <td>
-                            {template.target_report_type_id
-                              ? reportTypeMap.get(template.target_report_type_id)?.name ?? `#${template.target_report_type_id}`
-                              : '-'}
+                            {template.target_report_type_id ? (
+                              <button
+                                type="button"
+                                className="template-table-link"
+                                onClick={() => void openEditReportTypeModal(template.target_report_type_id as number)}
+                                title="Редактировать тип отчётности"
+                              >
+                                {reportTypeMap.get(template.target_report_type_id)?.name ?? `#${template.target_report_type_id}`}
+                              </button>
+                            ) : (
+                              '-'
+                            )}
+                          </td>
+                          <td>
+                            {template.processing_script_id ? (
+                              <button
+                                type="button"
+                                className="template-table-link"
+                                onClick={() => void openEditScriptModal(template.processing_script_id as number)}
+                                title="Редактировать скрипт обработки"
+                              >
+                                {processingScriptMap.get(template.processing_script_id)?.name ?? `#${template.processing_script_id}`}
+                              </button>
+                            ) : (
+                              '-'
+                            )}
                           </td>
                           <td>{template.version}</td>
                           <td>
@@ -588,7 +1030,12 @@ export default function AdminTemplatesPage() {
 
                 <Col md={6}>
                   <Form.Group>
-                    <Form.Label>Тип отчётности</Form.Label>
+                    <div className="template-field-header">
+                      <Form.Label>Тип отчётности</Form.Label>
+                      <button type="button" className="template-inline-link" onClick={openCreateReportTypeModal}>
+                        Создать тип
+                      </button>
+                    </div>
                     <Form.Select
                       className="soft-input"
                       value={formState.target_report_type_id}
@@ -601,6 +1048,34 @@ export default function AdminTemplatesPage() {
                         </option>
                       ))}
                     </Form.Select>
+                  </Form.Group>
+                </Col>
+
+                <Col md={6}>
+                  <Form.Group>
+                    <div className="template-field-header">
+                      <Form.Label>Скрипт постобработки</Form.Label>
+                      <button type="button" className="template-inline-link" onClick={openCreateScriptModal}>
+                        Создать скрипт
+                      </button>
+                    </div>
+                    <Form.Select
+                      className="soft-input"
+                      value={formState.processing_script_id}
+                      onChange={(event) => updateFormField('processing_script_id', event.target.value)}
+                    >
+                      <option value="">Не задан</option>
+                      {processingScripts
+                        .filter((item) => !formState.target_report_type_id || String(item.target_report_type_id ?? '') === formState.target_report_type_id || item.target_report_type_id == null)
+                        .map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name} v{item.version}
+                          </option>
+                        ))}
+                    </Form.Select>
+                    <Form.Text className="text-muted">
+                      Скрипт применяется после нормализации и может добавить новые расчётные колонки.
+                    </Form.Text>
                   </Form.Group>
                 </Col>
 
@@ -762,6 +1237,280 @@ export default function AdminTemplatesPage() {
         </Form>
       </Modal>
 
+
+
+      <Modal show={showScriptModal} onHide={closeScriptModal} size="lg" centered>
+        <Modal.Header closeButton>
+          <Modal.Title>{scriptFormMode === 'create' ? 'Создание скрипта обработки' : 'Редактирование скрипта обработки'}</Modal.Title>
+        </Modal.Header>
+
+        <Modal.Body>
+          <div className="template-helper-panel mb-4">
+            <div className="template-helper-title">Скрипт постобработки</div>
+            <div className="template-helper-text">
+              Скрипт выполняется после технической нормализации и получает расширенный контекст: строки отчёта, путь к основному файлу,
+              дополнительные файлы и параметры задачи. Скрипт должен содержать функцию process(context), а внутри неё можно использовать
+              любые вспомогательные функции и доступные в окружении Python-библиотеки.
+            </div>
+          </div>
+
+          <Row className="g-3">
+            <Col md={6}>
+              <Form.Group>
+                <Form.Label>Код скрипта</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={scriptForm.code}
+                  onChange={(event) => setScriptForm((prev) => ({ ...prev, code: event.target.value }))}
+                  placeholder="expense_control_script"
+                />
+              </Form.Group>
+            </Col>
+
+            <Col md={6}>
+              <Form.Group>
+                <Form.Label>Версия</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={scriptForm.version}
+                  onChange={(event) => setScriptForm((prev) => ({ ...prev, version: event.target.value }))}
+                  placeholder="1.0"
+                />
+              </Form.Group>
+            </Col>
+
+            <Col md={12}>
+              <Form.Group>
+                <Form.Label>Название</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={scriptForm.name}
+                  onChange={(event) => setScriptForm((prev) => ({ ...prev, name: event.target.value }))}
+                  placeholder="Контроль расходных операций"
+                />
+              </Form.Group>
+            </Col>
+
+            <Col md={6}>
+              <Form.Group>
+                <div className="template-field-header">
+                  <Form.Label>Тип отчётности</Form.Label>
+                  <button type="button" className="template-inline-link" onClick={openCreateReportTypeModal}>
+                    Создать тип
+                  </button>
+                </div>
+                <Form.Select
+                  className="soft-input"
+                  value={scriptForm.target_report_type_id}
+                  onChange={(event) => setScriptForm((prev) => ({ ...prev, target_report_type_id: event.target.value }))}
+                >
+                  <option value="">Без привязки</option>
+                  {reportTypes.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.name}
+                    </option>
+                  ))}
+                </Form.Select>
+              </Form.Group>
+            </Col>
+
+            <Col md={6}>
+              <div className="template-script-switches">
+                <Form.Check
+                  type="switch"
+                  id="script-active"
+                  label="Скрипт активен"
+                  checked={scriptForm.is_active}
+                  onChange={(event) => setScriptForm((prev) => ({ ...prev, is_active: event.target.checked }))}
+                />
+                <Form.Check
+                  type="switch"
+                  id="script-default"
+                  label="Использовать по умолчанию для типа отчётности"
+                  checked={scriptForm.is_default}
+                  onChange={(event) => setScriptForm((prev) => ({ ...prev, is_default: event.target.checked }))}
+                />
+              </div>
+            </Col>
+
+            <Col md={12}>
+              <Form.Group>
+                <Form.Label>Описание</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={2}
+                  className="soft-input soft-textarea"
+                  value={scriptForm.description}
+                  onChange={(event) => setScriptForm((prev) => ({ ...prev, description: event.target.value }))}
+                />
+              </Form.Group>
+            </Col>
+
+            <Col md={12}>
+              <Form.Group>
+                <Form.Label>Загрузить .py-файл скрипта</Form.Label>
+                <Form.Control
+                  type="file"
+                  className="soft-input"
+                  accept=".py"
+                  onChange={handleScriptFileChange}
+                />
+                <Form.Text className="text-muted">
+                  Можно загрузить локально подготовленный и протестированный Python-файл.
+                </Form.Text>
+              </Form.Group>
+            </Col>
+
+            <Col md={12}>
+              <Form.Group>
+                <Form.Label>Python-код</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={18}
+                  className="soft-input soft-textarea template-code-editor"
+                  value={scriptForm.script_code}
+                  onChange={(event) => setScriptForm((prev) => ({ ...prev, script_code: event.target.value }))}
+                />
+                <Form.Text className="text-muted">
+                  Точка входа: process(context). Скрипт запускается в отдельном процессе и может работать с context["rows"],
+                  context["files"]["main"] и context["files"]["by_role"].
+                </Form.Text>
+              </Form.Group>
+            </Col>
+
+            {scriptValidation ? (
+              <Col md={12}>
+                <Alert variant={scriptValidation.is_valid ? 'success' : 'danger'} className="mb-0">
+                  <div>{scriptValidation.message}</div>
+                  {scriptValidation.error ? <div>{scriptValidation.error}</div> : null}
+                  {scriptValidation.added_columns.length > 0 ? (
+                    <div>Добавляемые колонки: {scriptValidation.added_columns.join(', ')}</div>
+                  ) : null}
+                </Alert>
+              </Col>
+            ) : null}
+          </Row>
+        </Modal.Body>
+
+        <Modal.Footer>
+          <Button className="secondary-pill-button" onClick={closeScriptModal}>
+            Отмена
+          </Button>
+          <Button
+            type="button"
+            className="secondary-pill-button"
+            disabled={isValidatingScript}
+            onClick={() => void handleValidateScript()}
+          >
+            {isValidatingScript ? 'Проверка...' : 'Проверить скрипт'}
+          </Button>
+          <Button
+            type="button"
+            className="primary-pill-button"
+            disabled={isSubmittingScript}
+            onClick={() => void handleSaveScript()}
+          >
+            {isSubmittingScript ? 'Сохранение...' : scriptFormMode === 'create' ? 'Создать скрипт' : 'Сохранить изменения'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
+
+      <Modal show={showReportTypeModal} onHide={closeReportTypeModal} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>{reportTypeFormMode === 'create' ? 'Создание типа отчётности' : 'Редактирование типа отчётности'}</Modal.Title>
+        </Modal.Header>
+
+        <Modal.Body>
+          <div className="template-helper-panel mb-4">
+            <div className="template-helper-title">Тип отчётности</div>
+            <div className="template-helper-text">
+              Тип отчётности используется при создании отчёта и настройке ML-шаблона. Он помогает связать шаблон,
+              скрипт обработки и конкретный вид отчётных данных.
+            </div>
+          </div>
+
+          <Row className="g-3">
+            <Col md={6}>
+              <Form.Group>
+                <Form.Label>Код типа отчётности</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={reportTypeForm.code}
+                  onChange={(event) => setReportTypeForm((prev) => ({ ...prev, code: event.target.value }))}
+                  placeholder="Например: expense_statement"
+                />
+                <Form.Text className="text-muted">
+                  Технический код без пробелов. Используется в API, шаблонах и логах.
+                </Form.Text>
+              </Form.Group>
+            </Col>
+
+            <Col md={6}>
+              <Form.Group>
+                <Form.Label>Версия схемы</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={reportTypeForm.schema_version}
+                  onChange={(event) => setReportTypeForm((prev) => ({ ...prev, schema_version: event.target.value }))}
+                  placeholder="1.0"
+                />
+              </Form.Group>
+            </Col>
+
+            <Col md={12}>
+              <Form.Group>
+                <Form.Label>Название</Form.Label>
+                <Form.Control
+                  className="soft-input"
+                  value={reportTypeForm.name}
+                  onChange={(event) => setReportTypeForm((prev) => ({ ...prev, name: event.target.value }))}
+                  placeholder="Например: Сводная отчётность по затратам предприятия"
+                />
+              </Form.Group>
+            </Col>
+
+            <Col md={12}>
+              <Form.Group>
+                <Form.Label>Описание</Form.Label>
+                <Form.Control
+                  as="textarea"
+                  rows={3}
+                  className="soft-input soft-textarea"
+                  value={reportTypeForm.description}
+                  onChange={(event) => setReportTypeForm((prev) => ({ ...prev, description: event.target.value }))}
+                  placeholder="Кратко опиши назначение типа отчётности"
+                />
+              </Form.Group>
+            </Col>
+
+            <Col md={12}>
+              <Form.Check
+                type="switch"
+                id="report-type-active"
+                label="Тип отчётности активен"
+                checked={reportTypeForm.is_active}
+                onChange={(event) => setReportTypeForm((prev) => ({ ...prev, is_active: event.target.checked }))}
+              />
+            </Col>
+          </Row>
+        </Modal.Body>
+
+        <Modal.Footer>
+          <Button className="secondary-pill-button" onClick={closeReportTypeModal}>
+            Отмена
+          </Button>
+          <Button
+            type="button"
+            className="primary-pill-button"
+            disabled={isSubmittingReportType}
+            onClick={() => void handleSaveReportType()}
+          >
+            {isSubmittingReportType ? 'Сохранение...' : reportTypeFormMode === 'create' ? 'Создать тип' : 'Сохранить изменения'}
+          </Button>
+        </Modal.Footer>
+      </Modal>
+
       <Modal
         show={showDetailModal}
         onHide={() => {
@@ -807,6 +1556,15 @@ export default function AdminTemplatesPage() {
                 <div className="form-meta-value">
                   {selectedTemplate.target_report_type_id
                     ? reportTypeMap.get(selectedTemplate.target_report_type_id)?.name ?? `#${selectedTemplate.target_report_type_id}`
+                    : '-'}
+                </div>
+              </div>
+
+              <div className="form-meta-card">
+                <div className="form-meta-label">Скрипт постобработки</div>
+                <div className="form-meta-value">
+                  {selectedTemplate.processing_script_id
+                    ? processingScriptMap.get(selectedTemplate.processing_script_id)?.name ?? `#${selectedTemplate.processing_script_id}`
                     : '-'}
                 </div>
               </div>

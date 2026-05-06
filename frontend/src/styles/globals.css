@@ -3834,3 +3834,78 @@ input[type='file'].soft-input::file-selector-button {
   background: #141922 !important;
   border-color: #243244 !important;
 }
+
+.template-field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.template-inline-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--primary);
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.template-inline-link:hover {
+  color: var(--primary-dark);
+}
+
+.template-code-editor {
+  font-family: "JetBrains Mono", "Fira Code", Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 360px;
+}
+
+.template-script-switches {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 30px;
+}
+
+:root[data-theme='dark'] .template-code-editor {
+  background: #0f172a !important;
+  color: #e5e7eb !important;
+  border-color: #334155 !important;
+}
+
+:root[data-theme='dark'] .template-inline-link {
+  color: #93c5fd !important;
+}
+
+:root[data-theme='dark'] .template-inline-link:hover {
+  color: #bfdbfe !important;
+}
+
+.template-table-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: var(--primary);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.template-table-link:hover,
+.template-table-link:focus-visible {
+  color: var(--primary-dark);
+  text-decoration: underline;
+  outline: none;
+}
+
+:root[data-theme='dark'] .template-table-link {
+  color: #93c5fd !important;
+}
+
+:root[data-theme='dark'] .template-table-link:hover,
+:root[data-theme='dark'] .template-table-link:focus-visible {
+  color: #bfdbfe !important;
+}

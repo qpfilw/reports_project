@@ -16,3 +16,11 @@ export interface CreateReportTypePayload {
   schema_version: string;
   is_active: boolean;
 }
+
+export interface UpdateReportTypePayload {
+  code?: string;
+  name?: string;
+  description?: string | null;
+  schema_version?: string;
+  is_active?: boolean;
+}

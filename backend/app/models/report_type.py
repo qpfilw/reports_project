@@ -40,3 +40,9 @@ class ReportType(BigIntIdMixin, TimestampMixin, ActiveMixin, Base):
         back_populates="target_report_type",
         foreign_keys="MlTemplate.target_report_type_id",
     )
+
+    processing_scripts: Mapped[list["ProcessingScript"]] = relationship(
+        "ProcessingScript",
+        back_populates="target_report_type",
+        foreign_keys="ProcessingScript.target_report_type_id",
+    )

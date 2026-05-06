@@ -135,3 +135,9 @@ class User(BigIntIdMixin, TimestampMixin, Base):
         back_populates="creator",
         foreign_keys="MlTemplate.created_by",
     )
+
+    created_processing_scripts: Mapped[list["ProcessingScript"]] = relationship(
+        "ProcessingScript",
+        back_populates="creator",
+        foreign_keys="ProcessingScript.created_by",
+    )

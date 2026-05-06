@@ -10,6 +10,7 @@ from app.api.v1.endpoints.health import router as health_router
 from app.api.v1.endpoints.ml import router as ml_router
 from app.api.v1.endpoints.notifications import router as notifications_router
 from app.api.v1.endpoints.processing import router as processing_router
+from app.api.v1.endpoints.processing_scripts import router as processing_scripts_router
 from app.api.v1.endpoints.projects import router as projects_router
 from app.api.v1.endpoints.report_types import router as report_types_router
 from app.api.v1.endpoints.reports import router as reports_router
@@ -32,6 +33,7 @@ router.include_router(templates_router, prefix="/templates", tags=["templates"])
 router.include_router(reports_router, prefix="/reports", tags=["reports"])
 router.include_router(uploads_router, prefix="/uploads", tags=["uploads"])
 router.include_router(processing_router, prefix="/processing", tags=["processing"])
+router.include_router(processing_scripts_router, prefix="/processing-scripts", tags=["processing-scripts"])
 router.include_router(tasks_router, prefix="/tasks", tags=["tasks"])
 router.include_router(results_router, prefix="/results", tags=["results"])
 router.include_router(exports_router, prefix="/exports", tags=["exports"])

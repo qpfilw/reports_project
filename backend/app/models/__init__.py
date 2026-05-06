@@ -6,6 +6,7 @@ from .ml_template import MlTemplate
 from .normalized_dataset import NormalizedDataset
 from .notification import Notification
 from .processing_log import ProcessingLog
+from .processing_script import ProcessingScript
 from .processing_task import ProcessingTask
 from .project import Project
 from .project_member import ProjectMember
@@ -28,6 +29,7 @@ __all__ = [
     "MlTemplate",
     "ProcessingTask",
     "ProcessingLog",
+    "ProcessingScript",
     "TaskError",
     "NormalizedDataset",
     "Dashboard",

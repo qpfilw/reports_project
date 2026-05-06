@@ -17,6 +17,7 @@ class MlTemplate(BigIntIdMixin, TimestampMixin, ActiveMixin, Base):
     __table_args__ = (
         UniqueConstraint("code", "version", name="uq_ml_template_code_version"),
         Index("ix_ml_template_target_report_type_id", "target_report_type_id"),
+        Index("ix_ml_template_processing_script_id", "processing_script_id"),
         Index("ix_ml_template_created_by", "created_by"),
         Index("ix_ml_template_is_active", "is_active"),
         Index("ix_ml_template_is_default", "is_default"),
@@ -41,6 +42,11 @@ class MlTemplate(BigIntIdMixin, TimestampMixin, ActiveMixin, Base):
     )
 
     department: Mapped[str | None] = mapped_column(String(150), nullable=True)
+
+    processing_script_id: Mapped[int | None] = mapped_column(
+        ForeignKey("processing_script.id", ondelete="SET NULL"),
+        nullable=True,
+    )
 
     config_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
     metrics_json: Mapped[dict[str, Any]] = mapped_column(JSONB, nullable=False, default=dict)
@@ -81,6 +87,12 @@ class MlTemplate(BigIntIdMixin, TimestampMixin, ActiveMixin, Base):
         "Report",
         back_populates="ml_template",
         foreign_keys="Report.ml_template_id",
+    )
+
+    processing_script: Mapped["ProcessingScript | None"] = relationship(
+        "ProcessingScript",
+        back_populates="ml_templates",
+        foreign_keys=[processing_script_id],
     )
 
     processing_tasks: Mapped[list["ProcessingTask"]] = relationship(
