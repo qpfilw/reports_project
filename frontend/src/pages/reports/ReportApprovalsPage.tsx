@@ -65,7 +65,7 @@ function getMemberDisplayName(userId: number | null, members: ProjectMember[]) {
   }
 
   const member = members.find((item) => item.user_id === userId);
-  return member?.user.full_name ?? `Пользователь #${userId}`;
+  return member?.user.full_name ?? 'Пользователь';
 }
 
 export default function ReportApprovalsPage() {
@@ -321,7 +321,6 @@ export default function ReportApprovalsPage() {
             <Table borderless responsive className="prototype-table">
               <thead>
                 <tr>
-                  <th>ID</th>
                   <th>Название</th>
                   <th>Инициатор</th>
                   <th>Период</th>
@@ -333,7 +332,7 @@ export default function ReportApprovalsPage() {
               <tbody>
                 {filteredReports.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="text-center py-4">
+                    <td colSpan={6} className="text-center py-4">
                       В очереди согласования отчётов нет
                     </td>
                   </tr>
@@ -344,7 +343,6 @@ export default function ReportApprovalsPage() {
                       className="table-row-clickable"
                       onClick={() => navigate(`/reports/${report.id}/result`)}
                     >
-                      <td>{report.id}</td>
                       <td>{report.title}</td>
                       <td>{getMemberDisplayName(report.creator_id, members)}</td>
                       <td>

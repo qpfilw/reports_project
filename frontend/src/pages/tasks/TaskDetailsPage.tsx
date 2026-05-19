@@ -208,11 +208,6 @@ export default function TaskDetailsPage() {
 
         <div className="form-meta-grid mb-4">
           <div className="form-meta-card">
-            <div className="form-meta-label">ID задачи</div>
-            <div className="form-meta-value">#{task.id}</div>
-          </div>
-
-          <div className="form-meta-card">
             <div className="form-meta-label">Статус</div>
             <div className="form-meta-value">{getProcessingStatusLabel(progress.status)}</div>
           </div>

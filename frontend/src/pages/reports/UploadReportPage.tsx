@@ -367,7 +367,6 @@ export default function UploadReportPage() {
                   className="soft-input soft-textarea"
                   value={comment}
                   onChange={(event) => setComment(event.target.value)}
-                  placeholder="Например: Исправленная версия отчета за период"
                 />
               </Form.Group>
 

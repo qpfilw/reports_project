@@ -140,6 +140,18 @@ class ReportService:
         self.db.flush()
         return report
 
+    def unarchive(self, report: Report, *, comment: str | None = None) -> Report:
+        self._ensure_status(report, {ReportStatusEnum.ARCHIVED}, "unarchive")
+        report.status = ReportStatusEnum.REWORK
+        report.is_archived = False
+        report.submitted_at = None
+        report.approved_at = None
+        report.rejected_at = None
+        if comment:
+            report.last_comment = comment
+        self.db.flush()
+        return report
+
     def transition_report_status(
         self,
         report: Report,

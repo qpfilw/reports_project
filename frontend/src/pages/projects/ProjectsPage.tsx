@@ -207,7 +207,6 @@ export default function ProjectsPage() {
             <Table borderless responsive className="prototype-table">
               <thead>
                 <tr>
-                  <th>ID</th>
                   <th>Код</th>
                   <th>Название</th>
                   <th>Описание</th>
@@ -218,7 +217,7 @@ export default function ProjectsPage() {
               <tbody>
                 {filteredProjects.length === 0 ? (
                   <tr>
-                    <td colSpan={6} className="text-center py-4">
+                    <td colSpan={5} className="text-center py-4">
                       Проекты не найдены
                     </td>
                   </tr>
@@ -229,11 +228,10 @@ export default function ProjectsPage() {
                       className="table-row-clickable"
                       onClick={() => navigate(`/projects/${project.id}`)}
                     >
-                      <td>{project.id}</td>
                       <td>{project.code}</td>
                       <td>{project.name}</td>
                       <td>{project.description ?? '-'}</td>
-                      <td>
+                      <td className="table-cell-center table-status-cell">
                         <span
                           className={
                             project.is_archived
@@ -244,8 +242,8 @@ export default function ProjectsPage() {
                           {project.is_archived ? 'Архивный' : 'Активный'}
                         </span>
                       </td>
-                      <td onClick={(event) => event.stopPropagation()}>
-                        <div className="table-action-center table-action-stack">
+                      <td className="table-action-cell" onClick={(event) => event.stopPropagation()}>
+                        <div className="table-action-center projects-action-row">
                           <Button
                             size="sm"
                             className="primary-pill-button projects-open-button"

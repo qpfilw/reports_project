@@ -18,9 +18,13 @@ function formatDate(value: string) {
   return Number.isNaN(date.getTime()) ? value : date.toLocaleDateString('ru-RU');
 }
 
+function isArchivedReport(report: Report) {
+  return report.status === 'archived' || report.is_archived;
+}
+
 function canArchiveReport(report: Report) {
   return (
-    !report.is_archived &&
+    !isArchivedReport(report) &&
     (report.status === 'approved' || report.status === 'rejected' || report.status === 'failed')
   );
 }
@@ -75,11 +79,17 @@ export default function ReportsPage() {
   }, [reports, activeProjectId]);
 
   const filteredReports = useMemo(() => {
-    if (statusFilter === 'all') {
-      return projectReports;
+    if (statusFilter === 'archived') {
+      return projectReports.filter((report) => isArchivedReport(report));
     }
 
-    return projectReports.filter((report) => report.status === statusFilter);
+    if (statusFilter === 'all') {
+      return projectReports.filter((report) => !isArchivedReport(report));
+    }
+
+    return projectReports.filter(
+      (report) => !isArchivedReport(report) && report.status === statusFilter,
+    );
   }, [projectReports, statusFilter]);
 
   const visibleReports = useMemo(() => {
@@ -98,8 +108,13 @@ export default function ReportsPage() {
     selectedSingleReport.status !== 'archived' &&
     !selectedSingleReport.is_archived;
 
+  const selectedAreArchived =
+    selectedReports.length > 0 && selectedReports.every((report) => isArchivedReport(report));
+
   const canArchiveSelected =
     selectedReports.length > 0 && selectedReports.every((report) => canArchiveReport(report));
+
+  const canToggleArchiveSelected = selectedAreArchived || canArchiveSelected;
 
   const toggleOne = (reportId: number) => {
     setSelectedIds((prev) =>
@@ -125,7 +140,7 @@ export default function ReportsPage() {
   };
 
   const handleArchiveReports = async () => {
-    if (!canArchiveSelected || selectedReports.length === 0) {
+    if (!canToggleArchiveSelected || selectedReports.length === 0) {
       return;
     }
 
@@ -137,7 +152,11 @@ export default function ReportsPage() {
       const trimmedComment = archiveComment.trim();
 
       const results = await Promise.allSettled(
-        selectedReports.map((report) => reportsApi.archive(report.id, trimmedComment || null)),
+        selectedReports.map((report) =>
+          selectedAreArchived
+            ? reportsApi.unarchive(report.id, trimmedComment || null)
+            : reportsApi.archive(report.id, trimmedComment || null),
+        ),
       );
 
       const successCount = results.filter((item) => item.status === 'fulfilled').length;
@@ -150,17 +169,23 @@ export default function ReportsPage() {
 
       if (failedCount === 0) {
         setSuccessMessage(
-          successCount === 1
-            ? 'Отчет успешно архивирован.'
-            : `Отчеты успешно архивированы: ${successCount}.`,
+          selectedAreArchived
+            ? successCount === 1
+              ? 'Отчёт успешно разархивирован и возвращён в работу.'
+              : `Отчёты успешно разархивированы: ${successCount}.`
+            : successCount === 1
+              ? 'Отчёт успешно архивирован.'
+              : `Отчёты успешно архивированы: ${successCount}.`,
         );
       } else {
         setError(
-          `Часть архивирования завершилась с ошибкой. Успешно: ${successCount}, с ошибкой: ${failedCount}.`,
+          selectedAreArchived
+            ? `Часть разархивирования завершилась с ошибкой. Успешно: ${successCount}, с ошибкой: ${failedCount}.`
+            : `Часть архивирования завершилась с ошибкой. Успешно: ${successCount}, с ошибкой: ${failedCount}.`,
         );
       }
     } catch {
-      setError('Не удалось архивировать выбранные отчеты.');
+      setError(selectedAreArchived ? 'Не удалось разархивировать выбранные отчёты.' : 'Не удалось архивировать выбранные отчёты.');
     } finally {
       setIsArchiveSubmitting(false);
     }
@@ -249,7 +274,6 @@ export default function ReportsPage() {
                         onChange={toggleAll}
                       />
                     </th>
-                    <th>ID</th>
                     <th>Название</th>
                     <th>Статус</th>
                     <th>Период начала</th>
@@ -261,8 +285,10 @@ export default function ReportsPage() {
                 <tbody>
                   {visibleReports.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="text-center py-4">
-                        Отчеты в выбранном проекте не найдены
+                      <td colSpan={7} className="text-center py-4">
+                        {statusFilter === 'archived'
+                          ? 'Архивные отчёты в выбранном проекте не найдены'
+                          : 'Отчёты в выбранном проекте не найдены'}
                       </td>
                     </tr>
                   ) : (
@@ -278,9 +304,8 @@ export default function ReportsPage() {
                             onChange={() => toggleOne(report.id)}
                           />
                         </td>
-                        <td>{report.id}</td>
                         <td>{report.title}</td>
-                        <td>
+                        <td className="table-cell-center table-status-cell">
                           <span className={getReportStatusClassName(report.status)}>
                             {getReportStatusLabel(report.status)}
                           </span>
@@ -311,13 +336,13 @@ export default function ReportsPage() {
 
               <Button
                 className="primary-pill-button"
-                disabled={!canArchiveSelected}
+                disabled={!canToggleArchiveSelected}
                 onClick={() => {
                   setArchiveComment('');
                   setShowArchiveModal(true);
                 }}
               >
-                Архивировать
+                {selectedAreArchived ? 'Разархивировать' : 'Архивировать'}
               </Button>
             </div>
           </>
@@ -333,14 +358,18 @@ export default function ReportsPage() {
         centered
       >
         <Modal.Header closeButton>
-          <Modal.Title>Архивирование отчетов</Modal.Title>
+          <Modal.Title>{selectedAreArchived ? 'Разархивирование отчётов' : 'Архивирование отчётов'}</Modal.Title>
         </Modal.Header>
 
         <Modal.Body>
           <div className="archive-warning-text">
-            {selectedReports.length === 1
-              ? 'Выбранный отчет будет переведен в архив.'
-              : `Будут архивированы отчеты: ${selectedReports.length}.`}
+            {selectedAreArchived
+              ? selectedReports.length === 1
+                ? 'Выбранный отчёт будет возвращён из архива в рабочий контур.'
+                : `Будут разархивированы отчёты: ${selectedReports.length}.`
+              : selectedReports.length === 1
+                ? 'Выбранный отчёт будет переведён в архив.'
+                : `Будут архивированы отчёты: ${selectedReports.length}.`}
           </div>
 
           <Form.Group className="mt-3">
@@ -351,7 +380,11 @@ export default function ReportsPage() {
               className="soft-input soft-textarea"
               value={archiveComment}
               onChange={(event) => setArchiveComment(event.target.value)}
-              placeholder="Например: отчет завершен и переведен в архив"
+              placeholder={
+                selectedAreArchived
+                  ? 'Например: отчёт требуется вернуть в работу'
+                  : 'Например: отчёт завершён и переведён в архив'
+              }
             />
           </Form.Group>
         </Modal.Body>
@@ -372,7 +405,13 @@ export default function ReportsPage() {
             onClick={() => void handleArchiveReports()}
             disabled={isArchiveSubmitting}
           >
-            {isArchiveSubmitting ? 'Архивирование...' : 'Архивировать'}
+            {isArchiveSubmitting
+              ? selectedAreArchived
+                ? 'Разархивирование...'
+                : 'Архивирование...'
+              : selectedAreArchived
+                ? 'Разархивировать'
+                : 'Архивировать'}
           </Button>
         </Modal.Footer>
       </Modal>

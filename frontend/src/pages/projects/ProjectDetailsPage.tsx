@@ -484,7 +484,6 @@ export default function ProjectDetailsPage() {
             <Table borderless responsive className="prototype-table">
               <thead>
                 <tr>
-                  <th>ID</th>
                   <th>ФИО</th>
                   <th>Email</th>
                   <th>Роль</th>
@@ -497,7 +496,7 @@ export default function ProjectDetailsPage() {
               <tbody>
                 {members.length === 0 ? (
                   <tr>
-                    <td colSpan={8} className="text-center py-4">
+                    <td colSpan={7} className="text-center py-4">
                       Участники проекта отсутствуют
                     </td>
                   </tr>
@@ -508,7 +507,6 @@ export default function ProjectDetailsPage() {
 
                     return (
                       <tr key={member.id}>
-                        <td>{member.id}</td>
                         <td>{member.user.full_name}</td>
                         <td>{member.user.email}</td>
                         <td>{getProjectRoleLabel(member.member_role)}</td>
@@ -600,7 +598,6 @@ export default function ProjectDetailsPage() {
                     className="soft-input soft-textarea"
                     value={requestNote}
                     onChange={(event) => setRequestNote(event.target.value)}
-                    placeholder="Например: нужен доступ для подготовки ежемесячной отчетности"
                   />
                 </Form.Group>
               </Col>
@@ -676,7 +673,6 @@ export default function ProjectDetailsPage() {
                       className="soft-input soft-textarea"
                       value={memberNote}
                       onChange={(event) => setMemberNote(event.target.value)}
-                      placeholder="Например: добавить в проект для подготовки ежемесячной отчетности"
                     />
                   </Form.Group>
                 </Col>
@@ -755,7 +751,6 @@ export default function ProjectDetailsPage() {
                     className="soft-input soft-textarea"
                     value={editingNote}
                     onChange={(event) => setEditingNote(event.target.value)}
-                    placeholder="Например: изменена роль в рамках обновления состава команды"
                   />
                 </Form.Group>
               </Col>

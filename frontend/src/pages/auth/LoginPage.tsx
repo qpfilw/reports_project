@@ -70,7 +70,7 @@ export default function LoginPage() {
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
                   type="email"
-                  placeholder="Введите email"
+                  placeholder="Введите корпоративную почту"
                 />
               </Form.Group>
 

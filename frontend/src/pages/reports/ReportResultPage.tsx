@@ -706,7 +706,6 @@ export default function ReportResultPage() {
                 <div className="form-meta-label">Информация об обработке</div>
 
                 <div className="result-info-list">
-                  <div><strong>ID задачи:</strong> {taskDetail?.id ?? '-'}</div>
                   <div><strong>Статус задачи:</strong> {taskDetail ? getProcessingStatusLabel(taskDetail.status) : '-'}</div>
                   <div><strong>Прогресс:</strong> {taskDetail?.progress ?? 0}%</div>
                   <div>
@@ -728,7 +727,6 @@ export default function ReportResultPage() {
                 <div className="form-meta-label">Итог нормализации</div>
 
                 <div className="result-info-list">
-                  <div><strong>ID результата:</strong> {resultDetail?.id ?? '-'}</div>
                   <div><strong>Количество строк:</strong> {resultDetail?.rows_count ?? '-'}</div>
                   <div><strong>Дата формирования:</strong> {formatDateTime(resultDetail?.created_at)}</div>
                   <div><strong>Расположение данных:</strong> {resultDetail?.data_location ?? '-'}</div>
@@ -880,7 +878,6 @@ export default function ReportResultPage() {
                 <Table borderless responsive className="prototype-table">
                   <thead>
                     <tr>
-                      <th>ID</th>
                       <th>Формат</th>
                       <th>Размер</th>
                       <th>Создан</th>
@@ -890,7 +887,6 @@ export default function ReportResultPage() {
                   <tbody>
                     {exports.map((item) => (
                       <tr key={item.id}>
-                        <td>{item.id}</td>
                         <td>{item.format.toUpperCase()}</td>
                         <td>{formatBytes(item.file_size)}</td>
                         <td>{formatDateTime(item.created_at)}</td>

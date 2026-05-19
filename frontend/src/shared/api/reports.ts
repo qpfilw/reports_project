@@ -55,6 +55,13 @@ export const reportsApi = {
     return response.data;
   },
 
+  unarchive: async (reportId: number, last_comment?: string | null) => {
+    const response = await apiClient.post<ReportDetail>(`/reports/${reportId}/unarchive`, {
+      last_comment: last_comment ?? null,
+    });
+    return response.data;
+  },
+
   uploadFile: async (reportId: number, file: File, comment?: string) => {
     const formData = new FormData();
     formData.append('file', file);

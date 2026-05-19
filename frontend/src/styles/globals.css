@@ -1378,10 +1378,10 @@ a {
   align-items: center;
   justify-content: center;
   max-width: 100%;
-  min-height: 24px;
-  padding: 0 10px;
+  min-height: 30px;
+  padding: 0 12px;
   border-radius: 999px;
-  font-size: 12px;
+  font-size: 13px;
   font-weight: 500;
   line-height: 1;
   white-space: nowrap;
@@ -3908,4 +3908,80 @@ input[type='file'].soft-input::file-selector-button {
 :root[data-theme='dark'] .template-table-link:hover,
 :root[data-theme='dark'] .template-table-link:focus-visible {
   color: #bfdbfe !important;
+}
+
+/* Table alignment and table-local scrolling polish */
+.table-cell-center,
+.prototype-table thead th.table-cell-center,
+.prototype-table tbody td.table-cell-center {
+  text-align: center;
+}
+
+.table-status-cell,
+.table-badge-cell,
+.table-action-cell {
+  vertical-align: middle;
+}
+
+.projects-action-row {
+  flex-direction: row;
+  flex-wrap: nowrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.projects-action-row .projects-open-button,
+.projects-action-row .projects-archive-button {
+  min-width: 132px;
+}
+
+.notification-action-center {
+  min-height: 52px;
+  justify-content: center;
+}
+
+/* Long tables scroll inside their own blocks; page height stays stable. */
+.table-wrap {
+  position: relative;
+}
+
+.table-wrap > .table-responsive {
+  max-height: clamp(320px, 58vh, 680px);
+  overflow-x: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.table-wrap .prototype-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: #fff;
+  box-shadow: inset 0 -1px 0 var(--line);
+}
+
+.table-wrap .prototype-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+@media (max-width: 991.98px) {
+  .projects-action-row {
+    flex-wrap: wrap;
+  }
+
+  .table-wrap > .table-responsive {
+    max-height: min(56vh, 520px);
+  }
+}
+
+@media (max-width: 575.98px) {
+  .table-wrap > .table-responsive {
+    max-height: min(52vh, 440px);
+  }
+}
+
+:root[data-theme='dark'] .table-wrap .prototype-table thead th {
+  background: var(--card-bg) !important;
+  box-shadow: inset 0 -1px 0 var(--line);
 }

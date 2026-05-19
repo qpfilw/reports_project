@@ -366,7 +366,7 @@ export default function AnalyticsPage() {
 
     return {
       labels: topResults.map(
-        (item) => reportTitleMap.get(item.report_id) ?? `Отчёт #${item.report_id}`,
+        (item) => reportTitleMap.get(item.report_id) ?? 'Отчёт',
       ),
       datasets: [
         {
@@ -969,7 +969,6 @@ export default function AnalyticsPage() {
                   <Table borderless responsive className="prototype-table">
                     <thead>
                       <tr>
-                        <th>ID результата</th>
                         <th>Отчёт</th>
                         <th>Строк</th>
                         <th>Дата формирования</th>
@@ -979,15 +978,14 @@ export default function AnalyticsPage() {
                     <tbody>
                       {latestResults.length === 0 ? (
                         <tr>
-                          <td colSpan={5} className="text-center py-4">
+                          <td colSpan={4} className="text-center py-4">
                             Данные для аналитики отсутствуют
                           </td>
                         </tr>
                       ) : (
                         latestResults.map((item) => (
                           <tr key={item.id}>
-                            <td>{item.id}</td>
-                            <td>{reportTitleMap.get(item.report_id) ?? `Отчёт #${item.report_id}`}</td>
+                            <td>{reportTitleMap.get(item.report_id) ?? 'Отчёт'}</td>
                             <td>{formatRows(item.rows_count)}</td>
                             <td>{formatDateTime(item.created_at)}</td>
                             <td>

@@ -300,6 +300,35 @@ def update_report_status(
     return _get_report_detail_or_404(db, report.id)
 
 
+@router.post("/{report_id}/unarchive", response_model=ReportDetailRead, dependencies=[Depends(require_manager_user)])
+def unarchive_report(
+    report_id: int,
+    payload: ReportWorkflowActionRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_manager_user),
+) -> Report:
+    report = _get_report_for_update_or_404(db, report_id, current_user)
+    before_report = snapshot_report(report)
+
+    service = ReportService(db)
+    service.unarchive(report, comment=payload.last_comment)
+    log_audit(
+        db,
+        action=AuditActionEnum.UPDATE,
+        entity_type=AuditEntityTypeEnum.REPORT,
+        entity_id=report.id,
+        actor=current_user,
+        project_id=report.project_id,
+        before_json=before_report,
+        after_json={"event": "report_unarchived", **(snapshot_report(report) or {})},
+        request=request,
+    )
+    db.commit()
+    db.refresh(report)
+    return _get_report_detail_or_404(db, report.id)
+
+
 @router.post("/{report_id}/submit-review", response_model=ReportDetailRead, dependencies=[Depends(require_operator_user)])
 def submit_report_for_review(
     report_id: int,

@@ -182,9 +182,8 @@ export default function NotificationsPage() {
           <Table borderless responsive className="prototype-table">
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Тип</th>
                 <th>Заголовок</th>
+                <th>Тип</th>
                 <th>Сообщение</th>
                 <th>Статус</th>
                 <th>Создано</th>
@@ -194,7 +193,7 @@ export default function NotificationsPage() {
             <tbody>
               {visibleNotifications.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="text-center py-4">
+                  <td colSpan={6} className="text-center py-4">
                     Уведомления не найдены
                   </td>
                 </tr>
@@ -205,39 +204,40 @@ export default function NotificationsPage() {
                     className={`table-row-clickable ${notification.is_read ? '' : 'notification-table-row-unread'}`}
                     onClick={() => void handleOpen(notification)}
                   >
-                    <td>{notification.id}</td>
-                    <td>
-                        <span className={`${getNotificationTypeClassName(notification.type)} notification-type-badge-table`}>
-                            {getNotificationCompactLabel(notification.type)}
-                        </span>
-                    </td>
                     <td>{getNotificationDisplayTitle(notification)}</td>
+                    <td className="table-cell-center table-badge-cell">
+                      <span className={`${getNotificationTypeClassName(notification.type)} notification-type-badge-table`}>
+                        {getNotificationCompactLabel(notification.type)}
+                      </span>
+                    </td>
                     <td>{notification.message}</td>
-                    <td>
+                    <td className="table-cell-center table-status-cell">
                       <span className={notification.is_read ? 'status-badge status-badge-muted' : 'status-badge status-badge-info'}>
                         {notification.is_read ? 'Прочитано' : 'Новое'}
                       </span>
                     </td>
                     <td>{formatDateTime(notification.created_at)}</td>
-                    <td onClick={(event) => event.stopPropagation()}>
-                      {!notification.is_read ? (
-                        <Button
-                          size="sm"
-                          className="secondary-pill-button notifications-action-button"
-                          disabled={isActionLoading}
-                          onClick={() => void handleMarkRead(notification.id)}
-                        >
-                          Прочитать
-                        </Button>
-                      ) : (
-                        <Button
-                          size="sm"
-                          className="primary-pill-button notifications-action-button"
-                          onClick={() => void handleOpen(notification)}
-                        >
-                          Открыть
-                        </Button>
-                      )}
+                    <td className="table-action-cell" onClick={(event) => event.stopPropagation()}>
+                      <div className="table-action-center notification-action-center">
+                        {!notification.is_read ? (
+                          <Button
+                            size="sm"
+                            className="secondary-pill-button notifications-action-button"
+                            disabled={isActionLoading}
+                            onClick={() => void handleMarkRead(notification.id)}
+                          >
+                            Прочитать
+                          </Button>
+                        ) : (
+                          <Button
+                            size="sm"
+                            className="primary-pill-button notifications-action-button"
+                            onClick={() => void handleOpen(notification)}
+                          >
+                            Открыть
+                          </Button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))

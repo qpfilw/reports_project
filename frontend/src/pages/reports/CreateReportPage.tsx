@@ -187,7 +187,7 @@ export default function CreateReportPage() {
         saveLastMlTemplateId(null);
       }
 
-      setSuccessMessage(`Отчет №${createdReport.id} успешно создан.`);
+      setSuccessMessage('Отчет успешно создан.');
       setTimeout(() => {
         navigate(`/reports/${createdReport.id}/upload`);
       }, 700);
@@ -279,7 +279,6 @@ export default function CreateReportPage() {
                 <Form.Control
                   value={form.title}
                   onChange={(e) => updateField('title', e.target.value)}
-                  placeholder="Например: Ежемесячный финансовый отчет"
                   className="soft-input"
                 />
               </Form.Group>

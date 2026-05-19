@@ -76,7 +76,7 @@ export default function RegisterPage() {
                   className="soft-input"
                   value={form.full_name}
                   onChange={(e) => updateField('full_name', e.target.value)}
-                  placeholder="Иванов Иван Иванович"
+                  placeholder="Введите ФИО"
                 />
               </Form.Group>
 
@@ -87,7 +87,7 @@ export default function RegisterPage() {
                   value={form.email}
                   onChange={(e) => updateField('email', e.target.value)}
                   type="email"
-                  placeholder="name@company.ru"
+                  placeholder="Введите корпоративную почту"
                 />
               </Form.Group>
 

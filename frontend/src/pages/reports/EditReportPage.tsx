@@ -460,13 +460,8 @@ export default function EditReportPage() {
 
         <div className="form-meta-grid mb-4">
           <div className="form-meta-card">
-            <div className="form-meta-label">ID отчета</div>
-            <div className="form-meta-value">{report.id}</div>
-          </div>
-
-          <div className="form-meta-card">
-            <div className="form-meta-label">Проект</div>
-            <div className="form-meta-value">#{report.project_id}</div>
+            <div className="form-meta-label">Проектный контекст</div>
+            <div className="form-meta-value">Выбранный проект</div>
           </div>
 
           <div className="form-meta-card">
@@ -523,7 +518,7 @@ export default function EditReportPage() {
                 </Form.Select>
                 <Form.Text className="text-muted">
                   {selectedTemplate?.processing_script_id
-                    ? `К шаблону привязан расширенный Python-скрипт: ${selectedProcessingScript?.name ?? `#${selectedTemplate.processing_script_id}`}.`
+                    ? `К шаблону привязан расширенный Python-скрипт: ${selectedProcessingScript?.name ?? 'выбранный скрипт обработки'}.`
                     : 'У выбранного шаблона нет расширенного скрипта постобработки.'}
                 </Form.Text>
               </Form.Group>
@@ -742,7 +737,6 @@ export default function EditReportPage() {
                       value={reprocessComment}
                       onChange={(event) => setReprocessComment(event.target.value)}
                       className="soft-input"
-                      placeholder="Например: загружена исправленная версия файла"
                     />
                   </Form.Group>
                 </Col>
@@ -755,9 +749,9 @@ export default function EditReportPage() {
                       onChange={(event) => setReprocessPriority(event.target.value)}
                       className="soft-input"
                     >
-                      <option value="1">1 — низкий</option>
-                      <option value="3">3 — обычный</option>
-                      <option value="5">5 — повышенный</option>
+                      <option value="1">Низкий</option>
+                      <option value="3">Обычный</option>
+                      <option value="5">Повышенный</option>
                     </Form.Select>
                   </Form.Group>
                 </Col>

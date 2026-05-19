@@ -979,7 +979,6 @@ export default function AdminTemplatesPage() {
                       className="soft-input"
                       value={formState.code}
                       onChange={(event) => updateFormField('code', event.target.value)}
-                      placeholder="Например: monthly_finance_v1"
                     />
                     <Form.Text className="text-muted">
                       Краткий технический идентификатор без пробелов. Используется в API и логах.
@@ -1006,7 +1005,6 @@ export default function AdminTemplatesPage() {
                       className="soft-input"
                       value={formState.name}
                       onChange={(event) => updateFormField('name', event.target.value)}
-                      placeholder="Например: Ежемесячная финансовая отчётность"
                     />
                   </Form.Group>
                 </Col>
@@ -1086,7 +1084,6 @@ export default function AdminTemplatesPage() {
                       className="soft-input"
                       value={formState.department}
                       onChange={(event) => updateFormField('department', event.target.value)}
-                      placeholder="Например: Финансовый отдел"
                     />
                   </Form.Group>
                 </Col>
@@ -1098,7 +1095,6 @@ export default function AdminTemplatesPage() {
                       className="soft-input"
                       value={formState.model_path}
                       onChange={(event) => updateFormField('model_path', event.target.value)}
-                      placeholder="Например: models/monthly_finance.pkl"
                     />
                     <Form.Text className="text-muted">
                       Поле необязательно. Заполняй его только если шаблон связан с конкретным ML-артефактом.
@@ -1438,7 +1434,6 @@ export default function AdminTemplatesPage() {
                   className="soft-input"
                   value={reportTypeForm.code}
                   onChange={(event) => setReportTypeForm((prev) => ({ ...prev, code: event.target.value }))}
-                  placeholder="Например: expense_statement"
                 />
                 <Form.Text className="text-muted">
                   Технический код без пробелов. Используется в API, шаблонах и логах.
@@ -1465,7 +1460,6 @@ export default function AdminTemplatesPage() {
                   className="soft-input"
                   value={reportTypeForm.name}
                   onChange={(event) => setReportTypeForm((prev) => ({ ...prev, name: event.target.value }))}
-                  placeholder="Например: Сводная отчётность по затратам предприятия"
                 />
               </Form.Group>
             </Col>
