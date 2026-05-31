@@ -42,13 +42,3 @@ npm run reset
 ```powershell
 npm run make-admin
 ```
-
-## Что делает Compose
-
-- поднимает PostgreSQL;
-- поднимает Redis;
-- запускает миграции Alembic;
-- выполняет начальную инициализацию ролей через `python -m app.db.init_db`;
-- запускает FastAPI через Uvicorn;
-- запускает Celery worker;
-- запускает React/Vite frontend.
